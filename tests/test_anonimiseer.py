@@ -93,6 +93,19 @@ def test_datum_in_woorden():
     assert an.jaar_in_woorden("negentienhonderdvijfentachtig") == 1985
     assert an.jaar_in_woorden("tweeduizend") == 2000
     assert an.woord_naar_getal("drieëntwintig") == 23
+    assert an.woord_naar_getal("negen en twintig") == 29
+    assert [an.woord_naar_getal(w) for w in ("eerste", "derde", "tiende", "achtste", "eenentwintigste", "één")] \
+        == [1, 3, 10, 8, 21, 1]
+    assert an.jaar_in_woorden("negentienhonderd en tachtig") == 1980
+
+
+def test_akte_datum_blijft_geboortedatum_wordt_jaar():
+    a = an.Anonimiseerder(gebruik_ner=False)
+    assert a.anonimiseer_tekst(
+        "Heden, de eenentwintigste maart tweeduizend vierentwintig, verschenen: geboren te Zeist op "
+        "de tiende februari negentienhonderd en tachtig.") == (
+        "Heden, de eenentwintigste maart tweeduizend vierentwintig, verschenen: geboren te "
+        "[geboorteplaats] op 1980.")
 
 
 def test_behoud_en_extra_namen():

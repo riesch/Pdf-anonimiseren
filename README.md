@@ -12,7 +12,7 @@ Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zo
 | Alleen een achternaam die bij meerdere personen hoort (bijv. "Dhr. Jansen") | `Familie A` |
 | BSN | `[BSN]` |
 | Adressen (straat + huisnummer, postcode + plaats, velden als "Adres:") | `[adres]` |
-| Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit: "vijf april negentienhonderdvijfentachtig") |
+| Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit, zoals in akten: "de tiende februari negentienhonderd en tachtig") |
 | IBAN / rekeningnummers | sterretjes behalve de laatste 4: `**************4300` |
 | Twee rekeningen met dezelfde laatste 4 cijfers | `**************4300` en `**************4300 (2)` |
 | E-mailadressen en telefoonnummers | `[e-mail]` / `[telefoon]` |

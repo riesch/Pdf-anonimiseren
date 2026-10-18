@@ -191,9 +191,19 @@ TIENTALLEN = {"twintig": 20, "dertig": 30, "veertig": 40, "vijftig": 50, "zestig
               "zeventig": 70, "tachtig": 80, "negentig": 90}
 
 
+RANGTELWOORDEN = {"eerste": 1, "derde": 3}
+
+
 def woord_naar_getal(w: str) -> int | None:
-    """'twaalf' -> 12, 'vijfentachtig' -> 85, 'drieëntwintig' -> 23 (1 t/m 99)."""
-    w = w.lower().replace("ë", "e")
+    """'twaalf' -> 12, 'vijfentachtig' -> 85, 'drieëntwintig' -> 23, 'negen en twintig' -> 29,
+    en rangtelwoorden zoals in akten: 'tiende' -> 10, 'eenentwintigste' -> 21 (1 t/m 99)."""
+    w = w.lower().replace("ë", "e").replace("é", "e").replace(" ", "")
+    if w in RANGTELWOORDEN:
+        return RANGTELWOORDEN[w]
+    if w.endswith("ste") and len(w) > 5:     # achtste, twintigste, eenentwintigste
+        return woord_naar_getal(w[:-3])
+    if w.endswith("de") and w[:-2] in GETAL_WOORDEN:   # tweede, vierde, tiende, elfde, dertiende
+        return GETAL_WOORDEN[w[:-2]]
     if w in GETAL_WOORDEN:
         return GETAL_WOORDEN[w]
     if w in TIENTALLEN:
@@ -205,11 +215,14 @@ def woord_naar_getal(w: str) -> int | None:
 
 
 def jaar_in_woorden(w: str) -> int | None:
-    """'negentienhonderdvijfentachtig' -> 1985, 'tweeduizend twee' -> 2002."""
+    """'negentienhonderdvijfentachtig' -> 1985, 'tweeduizend twee' -> 2002,
+    'negentienhonderd en tachtig' -> 1980."""
     w = w.lower().replace(" ", "")
     for basis, waarde in (("negentienhonderd", 1900), ("achttienhonderd", 1800), ("tweeduizend", 2000)):
         if w.startswith(basis):
             rest = w[len(basis):]
+            if rest.startswith("en") and woord_naar_getal(rest[2:]):
+                rest = rest[2:]
             if not rest:
                 return waarde
             n = woord_naar_getal(rest)
@@ -217,9 +230,11 @@ def jaar_in_woorden(w: str) -> int | None:
     return None
 
 
+# "twaalf maart negentienhonderdvijfentachtig", "de tiende februari negentienhonderd en tachtig",
+# "negen en twintig mei tweeduizend twee"
 DATUM_WOORD_RE = re.compile(
-    rf"(?i)(?<![\w])([a-zë]+)[ ]+({_MAAND_ALT})[ ]+"
-    rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zë]*(?:[ ][a-zë]+)?)"
+    rf"(?i)(?<![\w])(?:de[ ]+)?([a-zëé]+(?:[ ]en[ ][a-zëé]+)?)[ ]+({_MAAND_ALT})[ ]+"
+    rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zëé]*(?:[ ][a-zëé]+){{0,3}})"
 )
 GEBOORTE_RE = re.compile(
     r"(?i)(geb(?:oren|oorte\w*)?\b|geb\.|date of birth|birth|d\.o\.b\.?|\bdob\b"
@@ -305,12 +320,14 @@ def datum_kandidaten(tekst: str) -> list[tuple[int, int, str, str]]:
             kandidaten.append((m.start(), m.end(), m[3], f"{m[3]}-{mnd:02d}-{int(m[1]):02d}"))
     for m in DATUM_WOORD_RE.finditer(tekst):   # "twaalf maart negentienhonderdvijfentachtig"
         dag = woord_naar_getal(m[1])
-        jaar_tekst, eind = m[3], m.end()
-        jaar = jaar_in_woorden(jaar_tekst)
-        if jaar is None and " " in jaar_tekst:   # tweede woord hoorde er niet bij
-            jaar_tekst = jaar_tekst.split(" ")[0]
-            eind = m.start(3) + len(jaar_tekst)
-            jaar = jaar_in_woorden(jaar_tekst)
+        # Het jaar mag uit meer woorden bestaan; woorden erna die er niet bij horen eraf halen.
+        woorden = m[3].split(" ")
+        jaar = None
+        while woorden and jaar is None:
+            jaar = jaar_in_woorden(" ".join(woorden))
+            if jaar is None:
+                woorden.pop()
+        eind = m.start(3) + len(" ".join(woorden))
         if dag and dag <= 31 and jaar:
             mnd = MAANDEN[m[2].lower()]
             kandidaten.append((m.start(), eind, str(jaar), f"{jaar}-{mnd:02d}-{dag:02d}"))

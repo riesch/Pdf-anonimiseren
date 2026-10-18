@@ -38,8 +38,9 @@ PROGRAMMAMAP = Path(__file__).resolve().parent
 
 def familie_kandidaten() -> list[Path]:
     """Waar familie.txt gezocht wordt, in deze volgorde."""
-    return [Path.cwd() / "familie.txt", PROGRAMMAMAP / "familie.txt",
-            Path.home() / ".pdf-anonimiseren" / "familie.txt"]
+    kandidaten = [Path.cwd() / "familie.txt", PROGRAMMAMAP / "familie.txt",
+                  Path.home() / ".pdf-anonimiseren" / "familie.txt"]
+    return list(dict.fromkeys(p.resolve() for p in kandidaten))   # zonder dubbele
 
 
 def vind_familie() -> Path | None:

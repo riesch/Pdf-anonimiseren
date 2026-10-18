@@ -1,3 +1,5 @@
-pymupdf>=1.24
-spacy>=3.7; python_version < "3.15"   # optioneel, betere naamherkenning (+ model nl_core_news_md); nog niet voor Python 3.15
-keyring>=24    # optioneel: bewaar de geheime sleutel in de sleutelhanger van je computer
+# Versies afgebakend, zodat een nieuwe hoofdversie niet onverwacht iets breekt.
+# Getest met: pymupdf 1.28, spacy 3.8, keyring 25 op Python 3.13.
+pymupdf>=1.24,<1.30
+spacy>=3.7,<3.9; python_version < "3.15"   # optioneel: betere naamherkenning (+ model nl_core_news_md)
+keyring>=24,<27                              # optioneel: geheime sleutel in de sleutelhanger

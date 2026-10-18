@@ -217,3 +217,27 @@ def test_adres_uit_context(anon, tekst, verwacht):
 ])
 def test_documentnummers(anon, tekst, verwacht):
     assert anon.anonimiseer_tekst(tekst) == verwacht
+
+
+@pytest.mark.parametrize("tekst, verwacht", [
+    ("Rekeningnummer: NL91 ABNA 0417\n1643 00 voor de teruggaaf", "Rekeningnummer: ABNA4300 voor de teruggaaf"),
+    ("Rekeningnummer: NL91ABNA041716\n4300", "Rekeningnummer: ABNA4300"),
+    ("IBAN NL91 ABNA\n0417 1643 00", "IBAN ABNA4300"),
+    ("NL91ABNA0417164300\nNL20INGB0001234567", "ABNA4300\nINGB4567"),
+    ("IBAN NL91ABNA0417164300\nBSN 111222333", "IBAN ABNA4300\nBSN [BSN]"),
+    ("rekeningnummer 1234\n567 (oud)", "rekeningnummer ****4567 (oud)"),
+])
+def test_rekeningnummer_over_twee_regels(anon, tekst, verwacht):
+    assert anon.anonimiseer_tekst(tekst) == verwacht
+
+
+def test_rekeningnummer_over_twee_regels_in_pdf(tmp_path, anon):
+    bron = tmp_path / "aangifte.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 60), "Teruggaaf op rekeningnummer NL91 ABNA 0417\n1643 00 van de belastingdienst",
+                               fontsize=11)
+    doc.save(bron)
+    r = anon.verwerk(bron, tmp_path / "uit")
+    with pymupdf.open(r.pdf) as d:
+        tekst = d[0].get_text()
+    assert "0417" not in tekst and "1643" not in tekst and "ABNA4300" in tekst and not r.gemarkeerd

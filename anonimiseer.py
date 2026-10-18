@@ -165,10 +165,14 @@ BSN_LABEL_RE = re.compile(
 )
 BSN_RE = re.compile(r"(?<![\d.,\w-])(\d{4}\.\d{2}\.\d{3}|\d{3}[ .]\d{3}[ .]\d{3}|\d{9})(?![\d\w]|[.,]\d)")
 
-IBAN_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){10,30})")
+# Tussen de groepjes mogen spaties en ook een regelovergang staan: in aangiften en akten
+# loopt een rekeningnummer soms door op de volgende regel. Lengte per land en de
+# controlesom voorkomen dat losse regels aan elkaar geplakt worden.
+# (In een lookahead, zodat een rekeningnummer op de volgende regel niet wordt overgeslagen.)
+IBAN_RE = re.compile(r"(?<![A-Za-z0-9])(?=([A-Z]{2}\d{2}(?:[ \t]*\n?[ \t]*[A-Z0-9]){10,30}))")
 REKENING_LABEL_RE = re.compile(
     r"(?i)\b(?:rekening(?:nummer)?|bankrekening(?:nummer)?|reknr|rek\.?[ ]?nr|girorekening|giro)"
-    r"\b\.?[ \t]*[:.]?[ \t]*(\d{1,3}(?:[ .]?\d){5,9})(?!\d)"
+    r"\b\.?[ \t]*[:.]?[ \t]*(\d{1,3}(?:[ .]?\n?[ \t]*\d){5,9})(?!\d)"
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 TELEFOON_RE = re.compile(
@@ -437,14 +441,14 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
         ruw = m[1]
         land = ruw[:2]
         # Bepaal het eind: precies de lengte van het land, anders inkorten tot geldig.
-        posities = [i for i, c in enumerate(ruw) if c != " "]
+        posities = [i for i, c in enumerate(ruw) if not c.isspace()]
         lengtes = [IBAN_LENGTE[land]] if land in IBAN_LENGTE else range(len(posities), 14, -1)
         for n in lengtes:
             if n > len(posities):
                 continue
             stuk = ruw[: posities[n - 1] + 1]
-            if iban_geldig(stuk):
-                sleutel = stuk.replace(" ", "")
+            sleutel = re.sub(r"\s", "", stuk)
+            if iban_geldig(sleutel):
                 vondsten.append(Vondst(m.start(1), m.start(1) + len(stuk), "iban",
                                        register.masker(sleutel), 9))
                 break

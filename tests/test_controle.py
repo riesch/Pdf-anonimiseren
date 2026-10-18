@@ -92,3 +92,8 @@ def test_bestandsnaam_wordt_gecontroleerd(tmp_path):
 def test_los_paspoortnummer_is_verdacht():
     bev = controle.controleer_uitvoer([("", "losse code NW1234567 hier")], [])
     assert _soorten(bev, "verdacht") == ["lijkt op paspoort-/ID-kaartnummer"]
+
+
+def test_afgebroken_rekeningnummer_is_verdacht():
+    bev = controle.controleer_uitvoer([("", "IBAN NL12 ABCD 0123\n456789")], [])
+    assert "lijkt op rekeningnummer" in _soorten(bev, "verdacht")

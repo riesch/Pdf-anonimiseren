@@ -28,12 +28,17 @@ def test_iban():
 def test_bsn_en_iban(anon):
     uit = anon.anonimiseer_tekst("BSN: 111.222.333, rekening NL91ABNA0417164300 en NL91 ABNA 0417 1643 00.")
     assert "111" not in uit
-    assert uit.count("**************4300") == 2
+    assert uit.count("ABNA4300") == 2
 
 
-def test_iban_zelfde_laatste_cijfers_blijven_verschillend(anon):
-    uit = anon.anonimiseer_tekst("NL91ABNA0417164300, NL39RABO0000004300 en weer NL91ABNA0417164300")
-    assert uit == "**************4300, **************4300 (2) en weer **************4300"
+def test_iban_bankcode_en_laatste_cijfers(anon):
+    uit = anon.anonimiseer_tekst("NL91ABNA0417164300, NL39RABO0000004300 en DE89370400440532013000")
+    assert uit == "ABNA4300, RABO4300 en DE3000"
+
+
+def test_iban_zelfde_bank_en_laatste_cijfers_blijven_verschillend(anon):
+    uit = anon.anonimiseer_tekst("NL91ABNA0417164300, NL49ABNA1000004300 en weer NL91ABNA0417164300")
+    assert uit == "ABNA4300, ABNA4300 (2) en weer ABNA4300"
 
 
 def test_geboortedatum_wordt_jaar(anon):

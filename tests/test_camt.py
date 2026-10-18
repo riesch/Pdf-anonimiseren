@@ -22,8 +22,8 @@ def test_camt(tmp_path):
     boom = ET.parse(r.tekst)    # nog steeds geldige XML met dezelfde namespace
     assert "JANSEN" not in uit.upper() and "Vries" not in uit and "Kerkstraat" not in uit
     assert "NL91ABNA" not in uit and "0417164300" not in uit and "06-12345678" not in uit
-    assert _tekst(boom, ".//c:Stmt/c:Acct/c:Id/c:IBAN") == ["**************4300"]
-    assert _tekst(boom, ".//c:CdtrAcct/c:Id/c:IBAN") == ["**************4300 (2)", "**************5588"]
+    assert _tekst(boom, ".//c:Stmt/c:Acct/c:Id/c:IBAN") == ["ABNA4300"]
+    assert _tekst(boom, ".//c:CdtrAcct/c:Id/c:IBAN") == ["RABO4300", "INGB5588"]
     # "HR J JANSEN" krijgt de voornaam uit de omschrijving ("groet Jan Jansen").
     assert set(_tekst(boom, ".//c:Dbtr/c:Nm")) == {"Jan"}
     assert _tekst(boom, ".//c:BirthDt") == ["1987"]
@@ -41,7 +41,7 @@ def test_camt_zip(tmp_path):
         z.write(VOORBEELD, "NL91ABNA0417164300_20240111.xml")
     r = camt.CamtAnonimiseerder().verwerk(bron, tmp_path / "uit")
     with zipfile.ZipFile(r.tekst) as z:
-        assert sorted(z.namelist()) == ["4300_20240110.xml", "4300_20240111.xml"]
+        assert sorted(z.namelist()) == ["ABNA4300_20240110.xml", "ABNA4300_20240111.xml"]
         assert all("JANSEN" not in z.read(n).decode().upper() for n in z.namelist())
 
 

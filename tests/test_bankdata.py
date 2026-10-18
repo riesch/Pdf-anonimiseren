@@ -31,13 +31,13 @@ def test_is_persoon():
 
 def test_ing(tmp_path):
     r, uit = _verwerk(tmp_path, "NL91ABNA0417164300_2024.csv", ING)
-    assert r.tekst.name == "4300_2024_anoniem.csv"   # sterretjes mogen niet in een bestandsnaam
+    assert r.tekst.name == "ABNA4300_2024_anoniem.csv"
     assert "JANSEN" not in uit.upper() and "NL20INGB" not in uit and "NL91ABNA" not in uit
     assert "Kerkstraat" not in uit and "12345678" not in uit
     assert "Albert Heijn" in uit and "Eneco Consumenten" in uit   # bedrijven blijven staan
     assert "750,00" in uit and "20240110" in uit                   # bedragen en datums ook
     assert uit.count("Persoon 1") == 4                              # HR J JANSEN = J. Jansen
-    assert '"**************4300";"**************4300"' in uit
+    assert '"ABNA4300";"ABNA4300"' in uit
     assert not r.lekken
 
 
@@ -56,7 +56,7 @@ def test_abn_txt_zonder_kopregel(tmp_path):
              "/TRTP/SEPA OVERBOEKING/IBAN/NL20INGB0001234567/BIC/INGBNL2A/NAME/J JANSEN/REMI/HUUR/\n")
     _, uit = _verwerk(tmp_path, "TXT240101.TXT", regel * 2)
     assert uit.startswith("*****6789\tEUR\t20240110")
-    assert "/NAME/Persoon 1/" in uit and "/IBAN/**************4567/" in uit and "-750,00" in uit
+    assert "/NAME/Persoon 1/" in uit and "/IBAN/INGB4567/" in uit and "-750,00" in uit
 
 
 def test_familie_modus_bank(tmp_path):

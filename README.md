@@ -13,8 +13,9 @@ Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zo
 | BSN | `[BSN]` |
 | Adressen (straat + huisnummer, postcode + plaats, velden als "Adres:") | `[adres]` |
 | Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit, zoals in akten: "de tiende februari negentienhonderd en tachtig") |
-| IBAN / rekeningnummers | sterretjes behalve de laatste 4: `**************4300` |
-| Twee rekeningen met dezelfde laatste 4 cijfers | `**************4300` en `**************4300 (2)` |
+| IBAN / rekeningnummers | bankcode + laatste 4 cijfers: `NL91 ABNA 0417 1643 00` → `ABNA4300` |
+| Twee rekeningen bij dezelfde bank met dezelfde laatste 4 cijfers | `ABNA4300` en `ABNA4300 (2)` |
+| Buitenlandse IBAN met cijfers als bankcode / oud rekeningnummer | `DE3000` / `****6789` |
 | E-mailadressen en telefoonnummers | `[e-mail]` / `[telefoon]` |
 
 | Overlijdensdatum | alleen het jaar |
@@ -145,7 +146,7 @@ Hier blijven **datums en bedragen** juist staan, zodat een AI je uitgaven nog ka
 
 | Gegeven | Wordt |
 |---|---|
-| Rekeningnummers | sterretjes behalve de laatste 4 (`**************4300`), uniek per rekening, dus terugkerende betalingen blijven herkenbaar |
+| Rekeningnummers | bankcode + laatste 4 cijfers (`ABNA4300`), uniek per rekening, dus terugkerende betalingen blijven herkenbaar |
 | Privépersonen als tegenpartij (`HR J JANSEN EO`, `J. Jansen`) | de voornaam als die bekend is (via `namen.txt`), anders `Persoon 1`, … – ook in de omschrijving |
 | Bedrijven (Albert Heijn, Eneco, Gemeente, …) | blijven staan; met `--alle-tegenpartijen` → `[tegenpartij 1]` |
 | Machtigingskenmerk, betalingskenmerk, transactiereferentie | `[kenmerk]` |
@@ -176,7 +177,7 @@ inlezen. Elk veld wordt behandeld naar zijn betekenis in de standaard:
 
 | Veld | Wordt |
 |---|---|
-| IBAN en ander rekeningnummer | sterretjes behalve de laatste 4, uniek per rekening |
+| IBAN en ander rekeningnummer | bankcode + laatste 4 cijfers (`ABNA4300`), uniek per rekening |
 | Naam van rekeninghouder of tegenpartij (privépersoon) | voornaam, of `Persoon 1` |
 | Naam van een bedrijf of bank | blijft staan (met `--alle-tegenpartijen`: `[tegenpartij 1]`) |
 | Adres van een privépersoon (`PstlAdr`) | `[adres]`; adressen van bedrijven blijven staan |

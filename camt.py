@@ -2,7 +2,7 @@
 
 Elk XML-veld wordt behandeld naar zijn betekenis in de standaard:
 
-  * IBAN / rekeningnummer      -> sterretjes behalve de laatste 4 tekens
+  * IBAN / rekeningnummer      -> bankcode + laatste 4 cijfers ("ABNA4300")
   * naam van een privépersoon  -> voornaam (of "Persoon 1"); bedrijven blijven staan
   * adres van een privépersoon -> "[adres]"
   * geboortedatum / -plaats    -> jaar / "[geboorteplaats]"

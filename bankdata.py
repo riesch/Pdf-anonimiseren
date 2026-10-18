@@ -3,7 +3,7 @@
 Anders dan bij PDF's blijven datums en bedragen hier staan: die zijn juist nodig om
 uitgaven te analyseren. Wat wordt vervangen:
 
-  * rekeningnummers            -> sterretjes behalve de laatste 4 tekens (uniek per rekening)
+  * rekeningnummers            -> bankcode + laatste 4 cijfers, bijv. "ABNA4300" (uniek per rekening)
   * namen van privépersonen    -> de voornaam, of "Persoon 1" als die onbekend is
                                   (ook in omschrijvingen)
   * kenmerken/referenties      -> "[kenmerk]"

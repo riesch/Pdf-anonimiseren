@@ -7,7 +7,7 @@ Wat er gebeurt:
   * BSN            -> "[BSN]";
   * adressen       -> "[adres]" (straat + huisnummer, postcode + woonplaats);
   * geboortedata   -> alleen het geboortejaar (ook voluit geschreven, zoals in aktes);
-  * rekeningnummers-> sterretjes behalve de laatste 4 tekens ("**************4300");
+  * rekeningnummers-> bankcode + laatste 4 cijfers ("NL91ABNA0417164300" -> "ABNA4300");
   * notariële akten: geboorteplaats, woonplaats, legitimatienummers en
                       kadastrale aanduidingen worden ook verwijderd;
   * verder: kentekens, klant-/polis-/dossier-/patiëntnummers, btw-nummers,
@@ -370,14 +370,21 @@ class Register:
         return self.labels[k]
 
     def masker(self, rekening: str) -> str:
-        """Sterretjes behalve de laatste 4 tekens, uniek per rekening.
+        """Bankcode + laatste 4 cijfers, uniek per rekening.
 
-        Eindigen twee verschillende rekeningen op dezelfde 4 cijfers, dan krijgt de
-        tweede een volgnummer erachter: "**************4300 (2)".
+        "NL91ABNA0417164300" -> "ABNA4300". Een buitenlandse IBAN zonder letters als
+        bankcode krijgt de landcode ("DE3000"), een oud rekeningnummer zonder bankcode
+        sterretjes ("****6789"). Hebben twee verschillende rekeningen dezelfde uitkomst,
+        dan krijgt de tweede een volgnummer: "ABNA4300 (2)".
         """
         k = ("iban", rekening)
         if k not in self.labels:
-            basis = "*" * max(len(rekening) - 4, 4) + rekening[-4:]
+            if re.fullmatch(r"[A-Z]{2}\d{2}[A-Z]{4}[A-Z0-9]+", rekening):
+                basis = rekening[4:8] + rekening[-4:]
+            elif re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]+", rekening):
+                basis = rekening[:2] + rekening[-4:]
+            else:
+                basis = "*" * max(len(rekening) - 4, 4) + rekening[-4:]
             al = sum(1 for (soort, _), l in self.labels.items()
                      if soort == "iban" and l.split(" (")[0] == basis)
             self.labels[k] = basis if not al else f"{basis} ({al + 1})"

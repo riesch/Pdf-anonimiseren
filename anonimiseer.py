@@ -25,6 +25,7 @@ Gebruik:
     python anonimiseer.py brief.pdf
     python anonimiseer.py map_met_pdfs/ -o uitvoer/ --namen namen.txt
     python anonimiseer.py NL00BANK0123456789_2024.csv     # bankexport, zie bankdata.py
+    python anonimiseer.py afschrift.xml                     # CAMT.053, zie camt.py
 """
 
 from __future__ import annotations
@@ -695,6 +696,26 @@ def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> d
     return families
 
 
+def zoek_voornamen(personen: list[Persoon], teksten: list[str]) -> bool:
+    """Vul een ontbrekende voornaam aan als die elders voluit staat.
+
+    "HR J JANSEN" in een naamveld en "groet Jan Jansen" in een omschrijving: dan is
+    de voornaam Jan en hoeft het script er niet naar te vragen.
+    """
+    tekst = "\n".join(teksten)
+    gewijzigd = False
+    for p in personen:
+        if p.voornamen or p.roepnaam or not p.achternaam or not p.initialen:
+            continue
+        i = p.initialen[0]
+        patroon = rf"{NW}({i}(?:[{KLEIN}]+|[{HOOFD}]+))[ ]+{_achternaam_patroon(p.achternaam)}{NA}"
+        gevonden = {_hoofdletter(m[1]) for m in re.finditer(patroon, tekst) if not _tv(m[1])}
+        if len(gevonden) == 1:
+            p.voornamen = [gevonden.pop()]
+            gewijzigd = True
+    return gewijzigd
+
+
 class Vrager:
     """Vraagt de gebruiker om een voornaam als die nergens in het document staat."""
 
@@ -930,7 +951,8 @@ class Anonimiseerder:
         """Vind alle vondsten per pagina (namen worden over het hele document gekoppeld)."""
         vermeldingen = self.herkenner.vermeldingen(paginas)
         personen, families = koppel_personen(vermeldingen, self.alleen_familie)
-        if self.vrager and self.vrager.vul_aan(personen, bron):
+        gevonden = zoek_voornamen(personen, paginas)
+        if gevonden | bool(self.vrager and self.vrager.vul_aan(personen, bron)):
             families = ken_labels_toe(personen, self.alleen_familie)
         patronen = naam_patronen(personen, families, vermeldingen)
         register = Register()
@@ -1033,7 +1055,7 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
     return lekken
 
 
-ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt"}
+ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt", ".xml", ".zip"}
 
 
 def lees_lijst(pad: Path | None) -> list[str]:
@@ -1048,7 +1070,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Anonimiseer PDF's en bankexports (namen, BSN, adressen, geboortedata, "
                     "rekeningnummers) zodat ze aan een AI gegeven kunnen worden.")
     ap.add_argument("invoer", nargs="+", type=Path,
-                    help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt) of map(pen) daarmee")
+                    help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt), CAMT.053 (.xml/.zip) "
+                         "of map(pen) daarmee")
     ap.add_argument("-o", "--uitvoer", type=Path, default=Path("geanonimiseerd"),
                     help="uitvoermap (standaard: ./geanonimiseerd)")
     ap.add_argument("--namen", type=Path,
@@ -1093,6 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     from bankdata import BankAnonimiseerder
+    from camt import CamtAnonimiseerder
 
     familie = args.familie
     if familie is None and not args.alle_namen and Path("familie.txt").is_file():
@@ -1107,7 +1131,7 @@ def main(argv: list[str] | None = None) -> int:
     vrager = None
     if not args.niet_vragen and sys.stdin.isatty():
         vrager = Vrager(onthoud=familie or args.namen)
-    anon = bank = None
+    anon = bank = camt = None
     fouten = 0
     for i, pad in enumerate(bestanden, 1):
         sleutel = args.uitvoer / f"sleutel_{i}.json" if args.sleutel else None
@@ -1118,6 +1142,10 @@ def main(argv: list[str] | None = None) -> int:
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen)
                 r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
+            elif pad.suffix.lower() in (".xml", ".zip"):
+                camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
+                                                  alleen_familie=bool(familie), vrager=vrager)
+                r = camt.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
             else:
                 bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager)

@@ -229,6 +229,19 @@ class BankAnonimiseerder:
                 if self._persoon(waarde):
                     yield m.start(1), m.start(1) + len(waarde), waarde
 
+    def verzamel(self, namen: list[str], teksten: list[str]) -> list[an.Vermelding]:
+        """Ronde 1: personen uit naamvelden en vrije tekst."""
+        # Alleen titels ("Dhr. ...") en --namen; "Naam: ..." wordt hieronder per geval
+        # beoordeeld, omdat daar vaak een bedrijfsnaam staat.
+        vermeldingen = self.herkenner.vermeldingen(["\n".join(teksten)], labels=False)
+        for i, naam in enumerate(namen):
+            if self._persoon(naam):
+                vermeldingen += ontleed_banknaam(naam, (i, 0))
+        for i, tekst in enumerate(teksten):
+            for _, _, waarde in self._namen_in_tekst(tekst):
+                vermeldingen += ontleed_banknaam(waarde, (len(namen) + i, 0))
+        return vermeldingen
+
     def verwerk(self, invoer: Path, uitmap: Path, sleutelbestand: Path | None = None) -> an.Resultaat:
         rijen, scheiding, alles_gequote = lees_csv(invoer)
         if not rijen:
@@ -236,114 +249,137 @@ class BankAnonimiseerder:
         rollen, heeft_kop = bepaal_rollen(rijen)
         data = rijen[1:] if heeft_kop else rijen
 
-        def cellen(rol):
-            for r, rij in enumerate(data):
+        def cellen(*rol):
+            for rij in data:
                 for k, cel in enumerate(rij):
-                    if k < len(rollen) and rollen[k] == rol and cel.strip():
-                        yield r, k, cel
+                    if k < len(rollen) and rollen[k] in rol and cel.strip():
+                        yield cel
 
         # Ronde 1: rekeningen en namen verzamelen. Eigen rekeningen eerst, zodat die
         # bij gelijke laatste cijfers het label zonder volgnummer krijgen.
-        register = an.Register()
-        for _, _, cel in cellen("eigen"):
+        sessie = Sessie(self)
+        for cel in cellen("eigen"):
             if _is_rekening(cel):
-                register.masker(_sleutel(cel))
-
-        # Alleen titels ("Dhr. ...") en --namen; "Naam: ..." wordt hieronder per geval
-        # beoordeeld, omdat daar vaak een bedrijfsnaam staat.
-        vermeldingen = self.herkenner.vermeldingen(["\n".join(c for _, _, c in cellen(rol))
-                                                    for rol in ("vrij", "auto")], labels=False)
-        for r, k, cel in cellen("naam"):
-            if self._persoon(cel):
-                vermeldingen += ontleed_banknaam(cel, (r, k))
-        for rol in ("vrij", "auto"):
-            for r, k, cel in cellen(rol):
-                for _, _, waarde in self._namen_in_tekst(cel):
-                    vermeldingen += ontleed_banknaam(waarde, (r, k))
-        personen, families = an.koppel_personen(vermeldingen, self.alleen_familie)
-        if self.vrager and self.vrager.vul_aan(personen, invoer.name, met_pagina=False):
-            families = an.ken_labels_toe(personen, self.alleen_familie)
-        patronen = an.naam_patronen(personen, families, vermeldingen)
-
-        def naam_label(waarde: str) -> str:
-            vondsten = an.kies_vondsten(an.vind_namen(waarde, patronen))
-            if vondsten:
-                return an.pas_toe(waarde, vondsten)
-            # Niet herkend: met een familielijst is het geen familielid, anders voor de zekerheid weg.
-            return waarde if self.alleen_familie else "[naam]"
-
-        tellingen: dict[str, int] = {}
-
-        def tel(soort, n=1):
-            tellingen[soort] = tellingen.get(soort, 0) + n
-
-        def vrije_tekst(tekst: str) -> str:
-            vondsten, _ = an.vind_overig(tekst, register, alle_datums=False)
-            vondsten = [v for v in vondsten if v.soort not in ("datum", "geboortedatum")]
-            vondsten += an.vind_namen(tekst, patronen)
-            vondsten += [an.Vondst(s, e, "naam", naam_label(w), 3) for s, e, w in self._namen_in_tekst(tekst)]
-            vondsten += [an.Vondst(m.start(1), m.end(1), "pasnummer", "[pasnummer]", 8)
-                         for m in PAS_RE.finditer(tekst)]
-            gekozen = an.kies_vondsten(vondsten)
-            for v in gekozen:
-                if v.soort != "behouden":
-                    tel(v.soort)
-            return an.pas_toe(tekst, gekozen)
+                sessie.register.masker(_sleutel(cel))
+        namen, teksten = list(cellen("naam")), list(cellen("vrij", "auto"))
+        sessie.stel_namen_vast(self.verzamel(namen, teksten), invoer.name, namen + teksten)
 
         # Ronde 2: elke cel volgens de rol van de kolom vervangen.
         uit = [list(r) for r in rijen]
         start = 1 if heeft_kop else 0
-        for r, rij in enumerate(uit[start:], start):
+        for rij in uit[start:]:
             for k, cel in enumerate(rij):
                 rol = rollen[k] if k < len(rollen) else "auto"
                 if not cel.strip() or rol == "behoud":
                     continue
                 if rol in ("eigen", "tegenrekening") and _is_rekening(cel):
-                    rij[k] = register.masker(_sleutel(cel))
-                    tel("iban")
+                    rij[k] = sessie.rekening(cel)
                 elif rol == "kenmerk":
-                    rij[k] = "[kenmerk]"
-                    tel("kenmerk")
+                    rij[k] = sessie.kenmerk(cel)
                 elif rol == "naam":
-                    if self._persoon(cel):
-                        rij[k] = naam_label(cel)
-                        if rij[k] != cel:
-                            tel("naam")
-                    elif self.alle_tegenpartijen:
-                        rij[k] = register.label("tegenpartij", an._norm(cel), "tegenpartij")
-                        tel("tegenpartij")
-                    else:
-                        rij[k] = vrije_tekst(cel)
+                    rij[k] = sessie.tegenpartij(cel)
                 elif rol == "auto" and an.iban_geldig(_sleutel(cel)):
-                    rij[k] = register.masker(_sleutel(cel))
-                    tel("iban")
+                    rij[k] = sessie.rekening(cel)
                 elif rol == "vrij" or (rol == "auto" and not GETAL_OF_DATUM_RE.match(cel)):
-                    rij[k] = vrije_tekst(cel)
+                    rij[k] = sessie.vrije_tekst(cel)
 
         uitmap.mkdir(parents=True, exist_ok=True)
-        stam = an.anonieme_bestandsnaam(invoer.stem, patronen, register)
-        uitpad = uitmap / f"{stam}_anoniem{invoer.suffix.lower()}"
+        uitpad = uitmap / f"{sessie.bestandsnaam(invoer.stem)}_anoniem{invoer.suffix.lower()}"
         with uitpad.open("w", encoding="utf-8", newline="") as f:
             schrijver = csv.writer(f, delimiter=scheiding, lineterminator="\n",
                                    quoting=csv.QUOTE_ALL if alles_gequote else csv.QUOTE_MINIMAL)
             schrijver.writerows(uit)
+        return sessie.resultaat(uitpad, uitpad.read_text(encoding="utf-8"), sleutelbestand)
 
-        lekken = controleer_bank(uitpad, register, personen)
 
+class Sessie:
+    """Alles wat bij één bankbestand hoort: rekeningen, personen en tellingen."""
+
+    def __init__(self, anon: BankAnonimiseerder):
+        self.anon = anon
+        self.register = an.Register()
+        self.tellingen: dict[str, int] = {}
+        self.personen: list[an.Persoon] = []
+        self.patronen: list = []
+
+    def tel(self, soort: str) -> None:
+        if soort != "behouden":
+            self.tellingen[soort] = self.tellingen.get(soort, 0) + 1
+
+    def stel_namen_vast(self, vermeldingen: list[an.Vermelding], bron: str, teksten: list[str]) -> None:
+        a = self.anon
+        self.personen, families = an.koppel_personen(vermeldingen, a.alleen_familie)
+        gevonden = an.zoek_voornamen(self.personen, teksten)
+        if gevonden | bool(a.vrager and a.vrager.vul_aan(self.personen, bron, met_pagina=False)):
+            families = an.ken_labels_toe(self.personen, a.alleen_familie)
+        self.patronen = an.naam_patronen(self.personen, families, vermeldingen)
+
+    def naam_label(self, waarde: str) -> str:
+        vondsten = an.kies_vondsten(an.vind_namen(waarde, self.patronen))
+        if vondsten:
+            return an.pas_toe(waarde, vondsten)
+        # Niet herkend: met een familielijst is het geen familielid, anders voor de zekerheid weg.
+        return waarde if self.anon.alleen_familie else "[naam]"
+
+    def rekening(self, waarde: str) -> str:
+        self.tel("iban")
+        return self.register.masker(_sleutel(waarde))
+
+    def kenmerk(self, waarde: str) -> str:
+        if waarde.strip().upper() in ("NOTPROVIDED", "NOT PROVIDED"):
+            return waarde
+        self.tel("kenmerk")
+        return "[kenmerk]"
+
+    def is_persoon(self, naam: str) -> bool:
+        return self.anon._persoon(naam)
+
+    def tegenpartij(self, naam: str) -> str:
+        """Naam van een tegenpartij: persoon -> voornaam, bedrijf blijft (of wordt een label)."""
+        if self.is_persoon(naam):
+            nieuw = self.naam_label(naam)
+            if nieuw != naam:
+                self.tel("naam")
+            return nieuw
+        if self.anon.alle_tegenpartijen:
+            self.tel("tegenpartij")
+            return self.register.label("tegenpartij", an._norm(naam), "tegenpartij")
+        return self.vrije_tekst(naam)
+
+    def vrije_tekst(self, tekst: str) -> str:
+        vondsten, _ = an.vind_overig(tekst, self.register, alle_datums=False)
+        vondsten = [v for v in vondsten if v.soort not in ("datum", "geboortedatum", "overlijdensdatum")]
+        vondsten += an.vind_namen(tekst, self.patronen)
+        vondsten += [an.Vondst(s, e, "naam", self.naam_label(w), 3)
+                     for s, e, w in self.anon._namen_in_tekst(tekst)]
+        vondsten += [an.Vondst(m.start(1), m.end(1), "pasnummer", "[pasnummer]", 8)
+                     for m in PAS_RE.finditer(tekst)]
+        gekozen = an.kies_vondsten(vondsten)
+        for v in gekozen:
+            self.tel(v.soort)
+        return an.pas_toe(tekst, gekozen)
+
+    def bestandsnaam(self, stam: str) -> str:
+        return an.anonieme_bestandsnaam(stam, self.patronen, self.register)
+
+    def resultaat(self, uitpad: Path, uittekst: str, sleutelbestand: Path | None) -> an.Resultaat:
         if sleutelbestand:
-            an.schrijf_sleutel(sleutelbestand, personen, register)
-        return an.Resultaat(None, uitpad, tellingen, 0, [], lekken)
+            an.schrijf_sleutel(sleutelbestand, self.personen, self.register)
+        lekken = controleer_bank(uittekst, self.register, self.personen, self.anon.alleen_familie)
+        return an.Resultaat(None, uitpad, self.tellingen, 0, [], lekken)
 
 
-def controleer_bank(pad: Path, register: an.Register, personen: list[an.Persoon]) -> list[tuple[int, str]]:
+def controleer_bank(tekst: str, register: an.Register, personen: list[an.Persoon],
+                    alleen_familie: bool = False) -> list[tuple[int, str]]:
     """Kijk of rekeningnummers of achternamen nog letterlijk in de uitvoer staan."""
-    tekst = pad.read_text(encoding="utf-8")
     compact = re.sub(r"[\s.]", "", tekst).upper()
     lekken = []
     for (soort, sleutel), _ in register.labels.items():
         if soort == "iban" and len(sleutel) >= 7 and sleutel in compact:
             lekken.append((0, "rekeningnummer"))
     for p in personen:
+        if p.label is None:
+            continue   # bewust niet vervangen (geen familielid)
         a = (p.achternaam or "").split()
         if a and len(a[-1]) >= 3 and re.search(rf"(?i){an.NW}{re.escape(a[-1])}{an.NA}", tekst):
             lekken.append((0, "naam"))

@@ -1,6 +1,6 @@
 # Pdf-anonimiseren
 
-Script om PDF-bestanden en bankexports te anonimiseren, zodat je ze veilig(er) aan een AI kunt geven.
+Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zodat je ze veilig(er) aan een AI kunt geven.
 
 ## PDF-bestanden
 
@@ -111,6 +111,36 @@ Of een tegenpartij een persoon of een bedrijf is, wordt geschat: woorden als *B.
 gezien, zet de naam dan in `behoud.txt`. Voornamen die alleen in een vrije omschrijving staan
 ("cadeau voor Sanne") worden alleen vervangen als ze in `namen.txt` staan.
 
+## CAMT.053-afschriften (XML)
+
+CAMT.053 is het XML-formaat voor bankafschriften dat alle Nederlandse banken aanbieden.
+Een los `.xml`-bestand of een `.zip` met meerdere afschriften gaat met hetzelfde commando:
+
+```bash
+python anonimiseer.py afschrift.xml
+python anonimiseer.py afschriften_2024.zip
+```
+
+Het resultaat is weer geldige CAMT.053-XML (of een ZIP), zodat andere software het nog kan
+inlezen. Elk veld wordt behandeld naar zijn betekenis in de standaard:
+
+| Veld | Wordt |
+|---|---|
+| IBAN en ander rekeningnummer | sterretjes behalve de laatste 4, uniek per rekening |
+| Naam van rekeninghouder of tegenpartij (privépersoon) | voornaam, of `Persoon 1` |
+| Naam van een bedrijf of bank | blijft staan (met `--alle-tegenpartijen`: `[tegenpartij 1]`) |
+| Adres van een privépersoon (`PstlAdr`) | `[adres]`; adressen van bedrijven blijven staan |
+| Geboortedatum en -plaats (`BirthDt`, `CityOfBirth`) | jaar / `[geboorteplaats]` |
+| Telefoon, e-mail, persoonlijk ID (`PrvtId`) | `[telefoon]`, `[e-mail]`, `[id]` |
+| EndToEndId, machtigingskenmerk, betalingskenmerk | `[kenmerk]` |
+| Omschrijving (`Ustrd`, `AddtlTxInf`, …) | zoals vrije tekst bij CSV-exports |
+| Datums, bedragen, BIC's, transactiecodes, incassant-ID's | blijven staan |
+
+Staat de rekeninghouder alleen als `HR J JANSEN` in het afschrift, maar ergens anders voluit
+(`groet Jan Jansen`), dan gebruikt het script die voornaam en hoeft het niet te vragen.
+Bij een ZIP worden alle afschriften samen bekeken, zodat dezelfde persoon of rekening overal
+hetzelfde label krijgt.
+
 ## Installatie
 
 ```bash
@@ -172,8 +202,8 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
 * Niet herkend: medische gegevens (diagnoses, medicijnen), inkomens- en salarisgegevens,
   leeftijden ("43 jaar"), beroep/werkgever, gebruikersnamen en social-media-accounts, en
   handgeschreven tekst. Lees daar zelf op na als dat in je documenten staat.
-* Bankexports: alleen CSV/TXT. MT940, CAMT.053 (XML) en Excel worden (nog) niet ondersteund.
-* Een map doorzoeken neemt `.pdf`, `.csv` en `.tsv` mee; een `.txt`-bestand alleen als je het
+* Bankexports: CSV/TXT en CAMT.053. MT940 en Excel worden (nog) niet ondersteund.
+* Een map doorzoeken neemt `.pdf`, `.csv`, `.tsv`, `.xml` en `.zip` mee; een `.txt`-bestand alleen als je het
   zelf noemt (zodat `namen.txt` niet als bankexport wordt gezien).
 
 ## Tests

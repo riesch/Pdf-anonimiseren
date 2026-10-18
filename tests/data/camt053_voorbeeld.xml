@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Verzonnen voorbeeld; alle namen en nummers zijn fictief. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>CAMT053-20240110-001</MsgId><CreDtTm>2024-01-10T06:00:00</CreDtTm>
+      <MsgRcpt><Nm>HR J JANSEN</Nm></MsgRcpt></GrpHdr>
+    <Stmt>
+      <Id>NL91ABNA0417164300-20240110</Id>
+      <ElctrncSeqNb>10</ElctrncSeqNb>
+      <CreDtTm>2024-01-10T06:00:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>NL91ABNA0417164300</IBAN></Id>
+        <Ccy>EUR</Ccy>
+        <Ownr><Nm>HR J JANSEN</Nm>
+          <PstlAdr><StrtNm>Kerkstraat</StrtNm><BldgNb>12a</BldgNb><PstCd>3512 JK</PstCd><TwnNm>Utrecht</TwnNm><Ctry>NL</Ctry></PstlAdr>
+        </Ownr>
+        <Svcr><FinInstnId><BIC>ABNANL2A</BIC><Nm>ABN AMRO Bank</Nm></FinInstnId></Svcr>
+      </Acct>
+      <Ntry>
+        <Amt Ccy="EUR">750.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2024-01-10</Dt></BookgDt><ValDt><Dt>2024-01-10</Dt></ValDt>
+        <AcctSvcrRef>0123456789</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>HUUR-2024-01-JJ</EndToEndId></Refs>
+          <RltdPties>
+            <Dbtr><Nm>HR J JANSEN</Nm></Dbtr>
+            <DbtrAcct><Id><IBAN>NL91ABNA0417164300</IBAN></Id></DbtrAcct>
+            <Cdtr><Nm>A de Vries</Nm>
+              <PstlAdr><AdrLine>Dorpsstraat 5</AdrLine><AdrLine>1234 AB Amersfoort</AdrLine></PstlAdr>
+              <Id><PrvtId><DtAndPlcOfBirth><BirthDt>1987-04-03</BirthDt><CityOfBirth>Amersfoort</CityOfBirth><CtryOfBirth>NL</CtryOfBirth></DtAndPlcOfBirth></PrvtId></Id>
+            </Cdtr>
+            <CdtrAcct><Id><IBAN>NL39RABO0000004300</IBAN></Id></CdtrAcct>
+          </RltdPties>
+          <RmtInf><Ustrd>Huur januari, groet Jan Jansen, tel 06-12345678</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">120.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2024-01-10</Dt></BookgDt>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>NOTPROVIDED</EndToEndId><MndtId>MNDT-998877</MndtId></Refs>
+          <RltdPties>
+            <Cdtr><Nm>Eneco Consumenten B.V.</Nm>
+              <PstlAdr><StrtNm>Marten Meesweg</StrtNm><BldgNb>5</BldgNb><TwnNm>Rotterdam</TwnNm></PstlAdr>
+              <Id><PrvtId><Othr><Id>NL12ZZZ123456780000</Id></Othr></PrvtId></Id>
+            </Cdtr>
+            <CdtrAcct><Id><IBAN>NL86INGB0002445588</IBAN></Id></CdtrAcct>
+          </RltdPties>
+          <RltdPties><Dbtr><Nm>HR J JANSEN</Nm></Dbtr></RltdPties>
+          <RmtInf><Strd><CdtrRefInf><Ref>1234567890123456</Ref></CdtrRefInf></Strd></RmtInf>
+          <AddtlTxInf>Termijnbedrag klantnummer 87654321</AddtlTxInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

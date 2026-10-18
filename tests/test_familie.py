@@ -112,3 +112,20 @@ def test_overschrijft_geen_andere_sleutel(tmp_path):
     with pytest.raises(RuntimeError, match="andere sleutel"):
         fam.naar_sleutelhanger(pad=pad, sleutelhanger=kr)
     assert pad.exists()
+
+
+@pytest.mark.parametrize("invoer", ["10-02-1980", "10/02/1980", "10.02.1980", "1980-02-10", "10 februari 1980",
+                                    "10 Feb. 1980", "10-feb-1980", "10 februari, 1980", "10e februari 1980",
+                                    "tien februari negentienhonderdtachtig"])
+def test_geboortedatum_in_elke_schrijfwijze(invoer):
+    assert fam._datum_iso(invoer) == "1980-02-10"
+
+
+def test_geboortedatum_herkend_in_andere_schrijfwijze_dan_opgeslagen(tmp_path):
+    antwoorden = iter(["Richard Jansen", "", "", "10-02-1980", ""])
+    pad = tmp_path / "familie.txt"
+    fam.familielid_toevoegen(pad, lambda _: next(antwoorden), tmp_path / "sleutel", sleutelhanger=None)
+    sleutel = fam.geheime_sleutel(pad=tmp_path / "sleutel", sleutelhanger=None)
+    uit = _anon(pad, sleutel).anonimiseer_tekst(
+        "Richard Jansen | 10 februari 1980 | Utrecht\nBetaald op 10 maart 1980.")
+    assert uit == "Richard | 1980 | Utrecht\nBetaald op 10 maart 1980."

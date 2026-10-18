@@ -178,7 +178,10 @@ MAANDEN = {
 _MAAND_ALT = "|".join(sorted(MAANDEN, key=len, reverse=True))
 DATUM_NUM_RE = re.compile(r"(?<![\d.])(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?![\d]|\.\d)")
 DATUM_ISO_RE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
-DATUM_TXT_RE = re.compile(rf"(?i)(?<!\d)(\d{{1,2}})[ ]+({_MAAND_ALT})\.?[ ]+(\d{{4}})(?!\d)")
+# "10 februari 1980", "10 feb. 1980", "10-feb-1980", "10 februari, 1980", "10e februari 1980"
+DATUM_TXT_RE = re.compile(
+    rf"(?i)(?<!\d)(\d{{1,2}})(?:e|ste|de)?(?:[ ]+|-)({_MAAND_ALT})\.?(?:,?[ ]+|-)(\d{{4}})(?!\d)"
+)
 GETAL_WOORDEN = {
     "een": 1, "één": 1, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6, "zeven": 7,
     "acht": 8, "negen": 9, "tien": 10, "elf": 11, "twaalf": 12, "dertien": 13, "veertien": 14,

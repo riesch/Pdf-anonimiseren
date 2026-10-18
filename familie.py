@@ -302,8 +302,8 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
     roepnaam = _vraag(invoer, "  Roepnaam (Enter = eerste voornaam): ")
     bsn = _vraag(invoer, "  BSN: ", lambda a: an.elfproef(re.sub(r"\D", "", a)),
                  "Dit is geen geldig BSN (elfproef klopt niet), probeer opnieuw.")
-    geboren = _vraag(invoer, "  Geboortedatum (dd-mm-jjjj): ", _datum_iso,
-                     "Onbekende datum, gebruik bijv. 12-03-1985.")
+    geboren = _vraag(invoer, "  Geboortedatum (bijv. 10-02-1980 of 10 februari 1980): ", _datum_iso,
+                     "Onbekende datum, gebruik bijv. 10-02-1980 of 10 februari 1980.")
 
     afdrukken: list[tuple[str, str, str]] = []   # (soort, afdruk, uitleg)
     if bsn:

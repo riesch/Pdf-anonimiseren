@@ -8,7 +8,15 @@ Alle namen en gegevens in deze handleiding zijn verzonnen.
 
 ## Waar staat het bestand?
 
-`familie.txt` moet in de map staan **waar je het script start**, meestal `~/pdf-anonimiseren`:
+Het script zoekt `familie.txt` op deze plekken, in deze volgorde, en gebruikt de eerste die
+bestaat:
+
+1. de map waar je het script start;
+2. de map van het script zelf (meestal `~/pdf-anonimiseren`);
+3. `~/.pdf-anonimiseren/familie.txt`.
+
+Zet hem dus het liefst in `~/pdf-anonimiseren`; dan wordt hij altijd gevonden, ook via de
+Finder-snelactie:
 
 ```bash
 cd ~/pdf-anonimiseren
@@ -22,8 +30,8 @@ Het script meldt bij elke run bovenaan dat het de lijst gebruikt:
 Familielijst familie.txt: alleen deze personen worden vervangen (--alle-namen om alle namen te vervangen).
 ```
 
-Zie je die regel niet, dan wordt `familie.txt` niet gevonden. Staat de lijst ergens anders,
-gebruik dan `--familie pad/naar/familie.txt`.
+Wordt geen lijst gevonden, dan meldt het script dat (en waar het gezocht heeft) en vervangt het
+alle namen. Staat de lijst ergens anders, gebruik dan `--familie pad/naar/familie.txt`.
 
 `familie.txt` staat in `.gitignore` en komt dus nooit in git of op GitHub. Geef het bestand ook
 niet aan een AI.
@@ -78,6 +86,8 @@ Typ de naam zoals hij in documenten staat, **liefst met alle voornamen**. Eén p
 | `Anna Wilhelmina de Vries` | `Anna` | tussenvoegsels mogen gewoon |
 | `J.P. Bakker = Jan` | `Jan` | ken je alleen initialen, geef dan een roepnaam |
 | `J.P. Bakker` | `Persoon 1` | zonder roepnaam is er geen voornaam bekend |
+| `Anna Jansen-de Vries` | `Anna` | dubbele achternaam |
+| `Anna Wilhelmina de Vries \| Anna Jansen-de Vries = Anna` | `Anna` | twee namen van één persoon, bijv. geboortenaam en getrouwde naam, gescheiden door `\|` |
 
 Het script herkent daarna ook andere schrijfwijzen van die persoon: `J. Jansen`, `J.P.M. Jansen`,
 `JANSEN`, `Jansen, J.P.M.`, `Dhr. Jansen` en losse voornamen als `Pieter`.
@@ -104,9 +114,9 @@ Richard Pieter Jansen
 
 | Soort | Ook goed | Herkend in documenten als | Wordt |
 |---|---|---|---|
-| `telefoon` | `tel`, `mobiel`, `telefoonnummer` | `06 1234 5678`, `+31 6 12345678`, `0031-6-12345678` | `[telefoon Richard]` |
+| `telefoon` | `tel`, `mobiel`, `telefoonnummer` | `06 1234 5678`, `+31 6 12345678`, `0031-6-12345678`; buitenlands: `+32 470 12 34 56` | `[telefoon Richard]` |
 | `e-mail` | `email`, `mail` | ook met hoofdletters | `[e-mail Richard]` |
-| `kenteken` | | `12-ABC-3`, `12ABC3`, `12-abc-3` (niet met spaties: `12 ABC 3`) | `[kenteken Richard]` |
+| `kenteken` | | `12-ABC-3`, `12 ABC 3`, `12ABC3` | `[kenteken Richard]` |
 | elk ander woord | | dezelfde woorden, hoofdletters en leestekens maken niet uit | `[werkgever Richard]`, `[school Richard]`, … |
 
 Tips:
@@ -218,17 +228,13 @@ keer niet opnieuw gevraagd wordt. Met `--niet-vragen` vraagt het script niets.
 | Fout | Gevolg | Goed |
 |---|---|---|
 | Gegevensregel zonder spaties ervoor: `telefoon: 06-…` | wordt gelezen als een (ongeldige) naam en genegeerd | `    telefoon: 06-…` |
-| Script gestart vanuit een andere map | `familie.txt` wordt niet gevonden: alle namen worden vervangen | eerst `cd ~/pdf-anonimiseren`, of `--familie pad` |
-| Dezelfde persoon twee keer met een andere achternaam (`Anna de Vries` en `Anna Jansen`) | twee personen: `Anna` en `Anna (2)` | één regel met de geboortenaam; de andere naam als eigen term (zie Beperkingen) |
+| `familie.txt` op een plek waar het script niet zoekt | niet gevonden: alle namen worden vervangen (het script meldt dat) | zet hem in `~/pdf-anonimiseren`, of gebruik `--familie pad` |
+| Dezelfde persoon op twee regels met een andere achternaam (`Anna de Vries` en `Anna Jansen`) | twee personen: `Anna` en `Anna (2)` | één regel: `Anna de Vries \| Anna Jansen = Anna` |
 | BSN leesbaar typen: `    bsn: 111222333` | wordt genegeerd | `--familie-toevoegen` |
 | Sleutel kwijt | BSN, geboortedatum en adres worden niet meer herkend | reservekopie met `--sleutel-exporteren` |
 
 ## Beperkingen
 
-- **Dubbele achternamen met tussenvoegsel** (`Anna Jansen-de Vries`) worden nog niet goed
-  opgesplitst. Zet de geboortenaam erin (`Anna de Vries`) en zet de andere achternaam als eigen
-  term onder de naam, bijvoorbeeld `    achternaam: Jansen-de Vries`. In een document wordt
-  `Anna Jansen-de Vries` dan `Anna [achternaam Anna]`.
 - Een eigen term wordt alleen herkend als de woorden precies zo achter elkaar staan; afkortingen
   of spelfouten in het document worden niet herkend.
 - In een gescande PDF hangt alles af van de tekstherkenning (OCR): een verkeerd gelezen letter

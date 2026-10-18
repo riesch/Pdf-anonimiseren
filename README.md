@@ -1,6 +1,7 @@
 # Pdf-anonimiseren
 
-Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zodat je ze veilig(er) aan een AI kunt geven.
+Script om PDF's, Word-documenten, e-mails, bankexports en CAMT.053-afschriften te anonimiseren,
+zodat je ze veilig(er) aan een AI kunt geven. Alles draait op je eigen computer.
 
 ## PDF-bestanden
 
@@ -16,16 +17,19 @@ Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zo
 | IBAN / rekeningnummers | bankcode + laatste 4 cijfers: `NL91 ABNA 0417 1643 00` → `ABNA4300` |
 | Twee rekeningen bij dezelfde bank met dezelfde laatste 4 cijfers | `ABNA4300` en `ABNA4300 (2)` |
 | Buitenlandse IBAN met cijfers als bankcode / oud rekeningnummer | `DE3000` / `****6789` |
-| E-mailadressen en telefoonnummers | `[e-mail]` / `[telefoon]` |
-
+| IBAN in kleine letters of over twee regels (`nl91abna…`, `NL91 ABNA 0417` ⏎ `1643 00`) | ook `ABNA4300` |
+| E-mailadressen en telefoonnummers (ook buitenlands: `+32 …`, `0049 …`) | `[e-mail]` / `[telefoon]` |
 | Overlijdensdatum | alleen het jaar |
-| Kenteken (`12-ABC-3`) | `[kenteken]` |
+| Kenteken (`12-ABC-3`, `12 ABC 3`) | `[kenteken]` |
 | Klant-, polis-, dossier-, zaak-, patiënt-, personeels-, studentnummer | `[polisnummer]`, `[patiëntnummer]`, … |
 | Btw-nummer (`NL123456789B01`, bevatte vroeger het BSN) | `[btw-nummer]` |
 | IP-adres | `[ip-adres]` |
+| Paspoort-, ID-kaart-, rijbewijsnummer | `[documentnummer]` |
 | Foto's, handtekeningen, logo's (alleen met `--zonder-afbeeldingen`) | grijs vlak `[afbeelding verwijderd]` |
 
 Het Markdown-bestand bevat nooit afbeeldingen; `--zonder-afbeeldingen` is alleen nodig als je de PDF zelf deelt.
+Uit de PDF worden ook metadata, bladwijzers, bijlagen, paginaminiaturen en de
+toegankelijkheidsstructuur verwijderd, want ook daarin kunnen de originele gegevens staan.
 
 ### Familie- en gezinsleden: familie.txt
 
@@ -98,13 +102,16 @@ Hier blijven **datums en bedragen** juist staan, zodat een AI je uitgaven nog ka
 | Pasnummers, klant-/polis-/contractnummers in omschrijvingen | `[pasnummer]` / `[klantnummer]` |
 | BSN, adressen, e-mail, telefoon in omschrijvingen | zoals bij PDF's |
 
-Het resultaat is weer een CSV/TXT met dezelfde kolommen (`<naam>_anoniem.csv`). Ook een
-rekeningnummer in de bestandsnaam wordt vervangen.
+Het resultaat is weer een CSV/TXT met dezelfde kolommen (`<naam>_anoniem.csv`), zo opgeslagen
+dat Excel letters als `ë` goed toont. Ook een rekeningnummer in de bestandsnaam wordt vervangen.
 
 Of een tegenpartij een persoon of een bedrijf is, wordt geschat: woorden als *B.V.*,
 *Stichting*, *Gemeente*, cijfers of bekende winkelnamen wijzen op een bedrijf; titels
-(*HR*, *MW*) of initialen + achternaam op een persoon. Wordt een bedrijf toch als persoon
-gezien, zet de naam dan in `behoud.txt`. Voornamen die alleen in een vrije omschrijving staan
+(*HR*, *MW*) of initialen + achternaam op een persoon. Namen die ook een persoonsnaam kunnen zijn
+(Dirk, Zeeman, Leen Bakker, …) staan bewust niet in de lijst met winkels: liever een winkel te veel
+vervangen dan een persoon niet. Met `--toon-tegenpartijen` zie je **alleen in de terminal** welke
+tegenpartijen als privépersoon zijn behandeld; staat er een bedrijf tussen, zet het dan in
+`behoud.txt`. Voornamen die alleen in een vrije omschrijving staan
 ("cadeau voor Sanne") worden alleen vervangen als ze in `namen.txt` staan.
 
 ## CAMT.053-afschriften (XML)
@@ -139,6 +146,11 @@ hetzelfde label krijgt.
 
 ## Gescande PDF's en tabellen
 
+**Ingevoegde scans.** Ook een afbeelding op een digitale pagina, zoals een kopie van een
+identiteitsbewijs onder een brief, wordt met OCR gelezen en geanonimiseerd. Kleine logo's en
+iconen worden overgeslagen. Kan een afbeelding niet gelezen worden (geen Tesseract of
+`--geen-ocr`), dan telt dat als lek en krijgt het bestand `_CONTROLEREN`.
+
 **Scans.** Een pagina die alleen uit een afbeelding bestaat (een scan zonder tekstherkenning)
 wordt automatisch met OCR gelezen, in het Nederlands en Engels. Daarna wordt hij net zo
 geanonimiseerd als een digitale pagina: de gegevens worden in de afbeelding zelf
@@ -161,7 +173,22 @@ kolom staat:
 
 Een kolom met kop *Naam*, *Achternaam* of *Voornamen* wordt als naam behandeld en een kolom met
 kop *Geboren* of *Geboortedatum* als geboortedatum, ook al staat dat woord niet vlak voor elke
-cel. Tabellen zonder lijnen en tabellen in scans blijven gewone tekst.
+cel. Tekst die binnen het tabelvak maar buiten de cellen staat (bijv. een voetnoot) komt onder
+de tabel. Tabellen zonder lijnen en tabellen in scans blijven gewone tekst.
+
+## Word-documenten en e-mails
+
+```bash
+python anonimiseer.py brief.docx
+python anonimiseer.py bericht.eml        # sleep een bericht uit Apple Mail naar de Finder: dat geeft een .eml
+```
+
+De uitvoer is een `…_anoniem.md`-bestand met controlerapport (geen nieuw Word-document).
+
+* **Word:** de tekst (tabellen als Markdown-tabel) en apart de kop- en voetteksten, voetnoten en
+  opmerkingen, want ook daarin staan vaak namen.
+* **E-mail:** afzender, ontvangers, onderwerp, datum en de tekst. Bijlagen worden alleen bij naam
+  genoemd: sla ze op en verwerk ze apart.
 
 ## Controle na het anonimiseren
 
@@ -221,9 +248,31 @@ Voor gescande PDF's ook Tesseract (met Nederlands):
 ## Gebruik
 
 ```bash
+cd ~/pdf-anonimiseren && source .venv/bin/activate
 python anonimiseer.py brief.pdf                     # één bestand
-python anonimiseer.py map_met_pdfs/ -o uitvoer/     # een hele map
+python anonimiseer.py map_met_documenten/           # een hele map
 ```
+
+Bij meerdere bestanden volgt aan het eind een samenvatting: hoeveel bestanden schoon zijn,
+welke verdachte plekken hebben en welke `_CONTROLEREN` kregen.
+
+### Finder-snelactie (Mac)
+
+Met een snelactie kun je in Finder met de rechtermuisknop op een bestand of map kiezen voor
+**Anonimiseer**, zonder terminal:
+
+1. Open **Automator** en kies *Nieuw document* → **Snelle taak**.
+2. Zet bovenaan *Werkstroom ontvangt* op **bestanden of mappen** in **Finder**.
+3. Sleep de actie **Voer shellscript uit** erin. Kies *Shell*: `/bin/bash`, *Geef invoer door*: **als argumenten**.
+4. Vervang de tekst door:
+   ```bash
+   "$HOME/pdf-anonimiseren/mac/anonimiseer-snelactie.sh" "$@"
+   ```
+5. Bewaar als **Anonimiseer**.
+
+Je krijgt een melding als het klaar is en de map `geanonimiseerd` gaat open. Moet er iets
+nagekeken worden, dan opent ook het verslag (`~/.pdf-anonimiseren/laatste_run.txt`). Een snelactie
+kan niets vragen: ontbrekende voornamen worden dan niet gevraagd.
 
 Per PDF krijg je in een map `geanonimiseerd/` **naast het bronbestand** (met `-o map` kies je
 zelf een andere plek):
@@ -239,7 +288,7 @@ zelf een andere plek):
 | `--familie-toevoegen` | met vragen een familielid toevoegen (BSN, geboortedatum, adres, telefoon, e-mail, kenteken, eigen termen) |
 | `--sleutel-exporteren pad` | reservekopie van de geheime sleutel (zie [FAMILIE.md](FAMILIE.md)) |
 | `--sleutel-naar-sleutelhanger [pad]` | sleutel(bestand of reservekopie) in de sleutelhanger zetten |
-| `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
+| `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard: `familie.txt` in de huidige map, de scriptmap of `~/.pdf-anonimiseren/`) |
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |
 | `--zonder-afbeeldingen` | foto's, handtekeningen en logo's uit de PDF halen |
@@ -250,11 +299,25 @@ zelf een andere plek):
 | `--geen-ner` | geen taalmodel gebruiken, alleen patronen en `--namen` |
 | `--alleen-tekst` / `--alleen-pdf` | maak maar één soort uitvoer |
 | `--alle-tegenpartijen` | bankexports: vervang ook namen van bedrijven en winkels |
-| `--sleutel` | schrijf ook `sleutel_N.json` met welk pseudoniem bij wie hoort. **Bevat persoonsgegevens – nooit aan een AI geven.** |
+| `--toon-tegenpartijen` | bankexports: toon in de terminal welke tegenpartijen als privépersoon zijn behandeld |
+| `--sleutel` | schrijf ook een sleutelbestand met welk pseudoniem bij wie hoort, in `~/.pdf-anonimiseren/sleutelbestanden/` (nooit naast de uitvoer). **Bevat echte persoonsgegevens – nooit delen.** |
 
 Tip: zet de namen van je gezinsleden in `namen.txt` en gebruik `--namen namen.txt`. Dat is
 de betrouwbaarste manier om te zorgen dat ze altijd worden vervangen. (`namen.txt`,
 PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in git komen.)
+
+## Opbouw van de code
+
+| Bestand | Wat |
+|---|---|
+| `anonimiseer.py` | hoofdlogica en opdrachtregel |
+| `patronen.py` | BSN, IBAN, telefoon, e-mail, datums, adressen, kentekens, documentnummers |
+| `namen.py` | namen herkennen, personen koppelen, labels |
+| `pdf.py` | PDF lezen (ook OCR), tabellen, wegpoetsen, Markdown |
+| `tekstbestanden.py` | Word en e-mail lezen |
+| `bankdata.py`, `camt.py` | bankexports en CAMT.053 |
+| `familie.py` | familie.txt, vingerafdrukken, sleutel |
+| `controle.py` | lekcheck en controlerapport |
 
 ## Hoe werkt het?
 
@@ -280,11 +343,15 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
   leeftijden ("43 jaar"), beroep/werkgever, gebruikersnamen en social-media-accounts, en
   handgeschreven tekst. Lees daar zelf op na als dat in je documenten staat.
 * Bankexports: CSV/TXT en CAMT.053. MT940 en Excel worden (nog) niet ondersteund.
-* Een map doorzoeken neemt `.pdf`, `.csv`, `.tsv`, `.xml` en `.zip` mee; een `.txt`-bestand alleen als je het
-  zelf noemt (zodat `namen.txt` niet als bankexport wordt gezien).
+* Bijlagen van e-mails worden niet automatisch verwerkt.
+* Een map doorzoeken neemt `.pdf`, `.docx`, `.eml`, `.csv`, `.tsv`, `.xml` en `.zip` mee; een
+  `.txt`-bestand alleen als je het zelf noemt (zodat `namen.txt` niet als bankexport wordt gezien).
 
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest tests
 ```
+
+Bij elke push naar GitHub draaien de tests ook automatisch (zie het tabblad *Actions*).

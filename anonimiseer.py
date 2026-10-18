@@ -1570,9 +1570,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Geen familielijst gevonden: alle namen worden vervangen. (Gezocht: "
               + ", ".join(str(p) for p in fam.familie_kandidaten()) + ")\n")
     namen = lees_lijst(args.namen) + lees_lijst(familie)
-    sleutel = fam.geheime_sleutel()
-    gegevens = fam.lees_familie(args.namen, sleutel)
-    gegevens.samenvoegen(fam.lees_familie(familie, sleutel))
+    geheime_sleutel = fam.geheime_sleutel()
+    gegevens = fam.lees_familie(args.namen, geheime_sleutel)
+    gegevens.samenvoegen(fam.lees_familie(familie, geheime_sleutel))
     if gegevens.heeft_afdrukken and not gegevens.sleutel_klopt:
         print(f"Let op: de BSN's/adressen in de familielijst zijn met een andere sleutel gemaakt dan "
               f"die in {fam.sleutel_locatie()}; ze worden niet herkend. Importeer de juiste sleutel met "
@@ -1584,35 +1584,40 @@ def main(argv: list[str] | None = None) -> int:
         vrager = Vrager(onthoud=familie or args.namen)
     anon = bank = camt = None
     fouten = 0
+    overzicht: list[tuple[str, str]] = []   # (bestandsnaam, status) voor de samenvatting
     for i, pad in enumerate(bestanden, 1):
         uitmap = args.uitvoer or pad.parent / "geanonimiseerd"
         # Het sleutelbestand bevat echte gegevens: nooit naast de uitvoer (bijv. in iCloud).
+        # (Niet verwarren met geheime_sleutel: die is voor de vingerafdrukken in familie.txt.)
         sleutel = (SLEUTELMAP / f"{datetime.now():%Y%m%d-%H%M%S}_{i}.json") if args.sleutel else None
         try:
             if pad.suffix.lower() == ".pdf":
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
                                               alle_datums=args.alle_datums, alleen_familie=bool(familie),
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
-                                              familiegegevens=gegevens, sleutel=sleutel,
+                                              familiegegevens=gegevens, sleutel=geheime_sleutel,
                                               rapport=not args.geen_rapport, ocr=not args.geen_ocr)
                 r = anon.verwerk(pad, uitmap, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
                 camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
-                                                  familiegegevens=gegevens, sleutel=sleutel,
+                                                  familiegegevens=gegevens, sleutel=geheime_sleutel,
                                                   rapport=not args.geen_rapport)
                 r = camt.verwerk(pad, uitmap, sleutelbestand=sleutel)
             else:
                 bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
-                                                  familiegegevens=gegevens, sleutel=sleutel,
+                                                  familiegegevens=gegevens, sleutel=geheime_sleutel,
                                                   rapport=not args.geen_rapport)
                 r = bank.verwerk(pad, uitmap, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)
             fouten += 1
+            overzicht.append((pad.name, "fout"))
             continue
+        overzicht.append((pad.name, "controleren" if r.gemarkeerd else
+                          ("nakijken" if any(b.ernst == "verdacht" for b in r.bevindingen) else "klaar")))
         samenvatting = ", ".join(f"{n}x {s}" for s, n in sorted(r.tellingen.items())) or "niets gevonden"
         print(f"[{i}] {pad.name}: {samenvatting}")
         for uit in (r.pdf, r.tekst):
@@ -1653,6 +1658,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"     sleutel: {sleutel}\n"
                   "     !! Dit bestand bevat ECHTE persoonsgegevens. Niet delen, niet aan een AI geven; "
                   "verwijder het als je het niet meer nodig hebt.")
+    if len(overzicht) > 1:
+        aantal = {s: sum(1 for _, x in overzicht if x == s) for s in ("klaar", "nakijken", "controleren", "fout")}
+        print(f"\nSamenvatting: {len(overzicht)} bestanden – {aantal['klaar']} schoon, "
+              f"{aantal['nakijken']} met verdachte plekken, {aantal['controleren']} met _CONTROLEREN, "
+              f"{aantal['fout']} fout")
+        teken = {"klaar": "  ok ", "nakijken": "  ?  ", "controleren": "  !! ", "fout": "  XX "}
+        for naam, status in overzicht:
+            if status != "klaar":
+                print(f"{teken[status]}{naam}")
     print("\nControleer het resultaat altijd zelf voordat je het met een AI deelt.")
     return 1 if fouten else 0
 

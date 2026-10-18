@@ -183,3 +183,28 @@ def test_familiegegevens_in_bestandsnaam(lijst, tmp_path):
     doc.save(bron)
     r = _anon(pad, sleutel).verwerk(bron, tmp_path / "uit")
     assert r.tekst.name == "geboorteakte_1985_BSN Richard_anoniem.md"
+
+
+def test_familiegegevens_via_opdrachtregel(tmp_path, monkeypatch):
+    """Regressie: de opdrachtregel gaf de geheime sleutel niet door, waardoor BSN/adres uit
+    familie.txt niet herkend werden ([BSN] in plaats van [BSN Richard])."""
+    antwoorden = iter(["Richard Pieter Jansen", "", "111222333", "", "", "", "", "", ""])
+    lijst = tmp_path / "familie.txt"
+    fam.familielid_toevoegen(lijst, lambda _: next(antwoorden), tmp_path / "sleutel", sleutelhanger=None)
+    sleutel = fam.geheime_sleutel(pad=tmp_path / "sleutel", sleutelhanger=None)
+    monkeypatch.setattr(fam, "geheime_sleutel", lambda *a, **k: sleutel)
+    bron = tmp_path / "brief.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 60), "Naam: Richard Jansen\nBSN: 111222333", fontsize=11)
+    doc.save(bron)
+    assert an.main([str(bron), "--familie", str(lijst), "--geen-ner", "--niet-vragen"]) == 0
+    assert "BSN: [BSN Richard]" in (tmp_path / "geanonimiseerd" / "brief_anoniem.md").read_text(encoding="utf-8")
+
+
+def test_samenvatting_bij_meerdere_bestanden(tmp_path, capsys):
+    for naam in ("a.pdf", "b.pdf"):
+        doc = pymupdf.open()
+        doc.new_page().insert_text((40, 60), "Naam: Jan Jansen", fontsize=11)
+        doc.save(tmp_path / naam)
+    an.main([str(tmp_path / "a.pdf"), str(tmp_path / "b.pdf"), "--geen-ner", "--niet-vragen", "--alle-namen"])
+    assert "Samenvatting: 2 bestanden – 2 schoon" in capsys.readouterr().out

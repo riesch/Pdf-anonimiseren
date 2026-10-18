@@ -26,9 +26,14 @@ def test_iban():
 
 
 def test_bsn_en_iban(anon):
-    uit = anon.anonimiseer_tekst("BSN: 111.222.333, rekening NL91ABNA0417164300 en NL91ABNA0417164300.")
+    uit = anon.anonimiseer_tekst("BSN: 111.222.333, rekening NL91ABNA0417164300 en NL91 ABNA 0417 1643 00.")
     assert "111" not in uit
-    assert uit.count("[IBAN 1]") == 2
+    assert uit.count("**************4300") == 2
+
+
+def test_iban_zelfde_laatste_cijfers_blijven_verschillend(anon):
+    uit = anon.anonimiseer_tekst("NL91ABNA0417164300, NL39RABO0000004300 en weer NL91ABNA0417164300")
+    assert uit == "**************4300, **************4300 (2) en weer **************4300"
 
 
 def test_geboortedatum_wordt_jaar(anon):
@@ -51,14 +56,43 @@ def test_namen_consistent(anon):
     tekst = ("Naam: Jan Jansen\nGeachte heer Jansen,\nUw partner mevrouw A. de Vries "
              "en J. Jansen. Jan belt.")
     uit = anon.anonimiseer_tekst(tekst)
-    assert "Jansen" not in uit and "Vries" not in uit and "Jan " not in uit
-    assert uit.count("Persoon 1") == 4
-    assert "Persoon 2" in uit
+    assert "Jansen" not in uit and "Vries" not in uit
+    assert uit == ("Naam: Jan\nGeachte heer Jan,\nUw partner mevrouw Persoon 1 "
+                   "en Jan. Jan belt.")   # van "A. de Vries" is geen voornaam bekend
 
 
 def test_zelfde_achternaam_wordt_familie(anon):
     uit = anon.anonimiseer_tekst("Naam: Jan Jansen\nNaam kind: Piet Jansen\nDhr. Jansen")
-    assert "Persoon 1" in uit and "Persoon 2" in uit and "Familie A" in uit
+    assert uit == "Naam: Jan\nNaam kind: Piet\nDhr. Familie A"
+
+
+def test_zelfde_voornaam_krijgt_volgnummer(anon):
+    uit = anon.anonimiseer_tekst("Naam: Jan Jansen\nNaam partner: Jan de Vries")
+    assert uit == "Naam: Jan\nNaam partner: Jan (2)"
+
+
+def test_roepnaam_uit_namenlijst():
+    a = an.Anonimiseerder(namen=["Johannes Petrus Jansen = Hans"], gebruik_ner=False)
+    assert a.anonimiseer_tekst("Johannes Petrus JANSEN en Hans Jansen") == "Hans en Hans"
+
+
+def test_notariele_akte():
+    a = an.Anonimiseerder(gebruik_ner=False)
+    uit = a.anonimiseer_tekst(
+        "de heer Johannes Petrus Maria JANSEN, geboren te Amersfoort op vijf april "
+        "negentienhonderdvijfentachtig, wonende te Utrecht, zich legitimerende met paspoort "
+        "nummer NW1234567. Het woonhuis, kadastraal bekend gemeente Utrecht, sectie A, nummer 1234. "
+        "De heer Jansen tekent.")
+    assert uit == (
+        "de heer Johannes, geboren te [geboorteplaats] op 1985, wonende te [woonplaats], zich "
+        "legitimerende met paspoort nummer [documentnummer]. Het woonhuis, kadastraal bekend "
+        "[kadastrale aanduiding]. De heer Johannes tekent.")
+
+
+def test_datum_in_woorden():
+    assert an.jaar_in_woorden("negentienhonderdvijfentachtig") == 1985
+    assert an.jaar_in_woorden("tweeduizend") == 2000
+    assert an.woord_naar_getal("drieëntwintig") == 23
 
 
 def test_behoud_en_extra_namen():
@@ -75,10 +109,10 @@ def test_pdf(tmp_path, anon):
     doc.save(bron)
 
     r = anon.verwerk(bron, tmp_path / "uit")
-    assert r.pdf.name == "Persoon 1 brief_anoniem.pdf"
+    assert r.pdf.name == "Jan brief_anoniem.pdf"
     assert not r.lekken
     with pymupdf.open(r.pdf) as d:
         tekst = d[0].get_text()
         assert "Jansen" not in tekst and "111222333" not in tekst and "Kerkstraat" not in tekst
         assert not d.metadata["author"]
-    assert "Persoon 1" in r.tekst.read_text(encoding="utf-8")
+    assert "Naam: Jan" in r.tekst.read_text(encoding="utf-8")

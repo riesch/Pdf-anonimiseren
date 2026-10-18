@@ -2,12 +2,14 @@
 """Anonimiseer PDF-bestanden zodat ze geschikt zijn om aan een AI-model te geven.
 
 Wat er gebeurt:
-  * namen          -> vaste pseudoniemen ("Persoon 1", "Persoon 2", ...), zodat
-                      een AI nog kan volgen wie wie is;
+  * namen          -> alleen de (roep)voornaam: "Jan Pieter Jansen" -> "Jan";
+                      zonder bekende voornaam "Persoon 1", "Persoon 2", ...;
   * BSN            -> "[BSN]";
   * adressen       -> "[adres]" (straat + huisnummer, postcode + woonplaats);
-  * geboortedata   -> alleen het geboortejaar;
-  * rekeningnummers-> "[IBAN 1]", "[IBAN 2]", ... (vast per rekeningnummer);
+  * geboortedata   -> alleen het geboortejaar (ook voluit geschreven, zoals in aktes);
+  * rekeningnummers-> sterretjes behalve de laatste 4 tekens ("**************4300");
+  * notariële akten: geboorteplaats, woonplaats, legitimatienummers en
+                      kadastrale aanduidingen worden ook verwijderd;
   * e-mail/telefoon-> "[e-mail]" / "[telefoon]".
 
 Per invoerbestand worden een geanonimiseerde PDF (echte redactie: de originele
@@ -47,8 +49,9 @@ TUSSENVOEGSELS = [
 ]
 TV = "(?:" + "|".join(re.escape(t) for t in sorted(TUSSENVOEGSELS, key=len, reverse=True)) + ")"
 TV_I = rf"(?i:{TV})"
-NAAM = rf"(?:{INITIALEN}[ ]?|(?:{CAP}[ ]){{0,3}})(?:{TV_I}[ ]){{0,3}}{CAP}"
-NAAM_OMGEKEERD = rf"(?:{TV_I}[ ]){{0,3}}{CAP},[ ]?(?:{INITIALEN}|{CAP}(?:[ ]{CAP}){{0,3}})(?:[ ]{TV}){{0,3}}"
+# Notariële akten noemen alle voornamen voluit, vaak vier of meer.
+NAAM = rf"(?:{INITIALEN}[ ]?|(?:{CAP}[ ]){{0,6}})(?:{TV_I}[ ]){{0,3}}{CAP}"
+NAAM_OMGEKEERD = rf"(?:{TV_I}[ ]){{0,3}}{CAP},[ ]?(?:{INITIALEN}|{CAP}(?:[ ]{CAP}){{0,6}})(?:[ ]{TV}){{0,3}}"
 
 TITELS = r"(?:de[ ]heer|heer|mevrouw|meneer|mevr|mw|mvr|dhr|hr|mr|dr|drs|ir|ing|prof|ds)\.?"
 GROETEN = {
@@ -170,6 +173,45 @@ _MAAND_ALT = "|".join(sorted(MAANDEN, key=len, reverse=True))
 DATUM_NUM_RE = re.compile(r"(?<![\d.])(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})(?![\d]|\.\d)")
 DATUM_ISO_RE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 DATUM_TXT_RE = re.compile(rf"(?i)(?<!\d)(\d{{1,2}})[ ]+({_MAAND_ALT})\.?[ ]+(\d{{4}})(?!\d)")
+GETAL_WOORDEN = {
+    "een": 1, "één": 1, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6, "zeven": 7,
+    "acht": 8, "negen": 9, "tien": 10, "elf": 11, "twaalf": 12, "dertien": 13, "veertien": 14,
+    "vijftien": 15, "zestien": 16, "zeventien": 17, "achttien": 18, "negentien": 19,
+}
+TIENTALLEN = {"twintig": 20, "dertig": 30, "veertig": 40, "vijftig": 50, "zestig": 60,
+              "zeventig": 70, "tachtig": 80, "negentig": 90}
+
+
+def woord_naar_getal(w: str) -> int | None:
+    """'twaalf' -> 12, 'vijfentachtig' -> 85, 'drieëntwintig' -> 23 (1 t/m 99)."""
+    w = w.lower().replace("ë", "e")
+    if w in GETAL_WOORDEN:
+        return GETAL_WOORDEN[w]
+    if w in TIENTALLEN:
+        return TIENTALLEN[w]
+    m = re.fullmatch(r"(een|twee|drie|vier|vijf|zes|zeven|acht|negen)en(\w+)", w)
+    if m and m[2] in TIENTALLEN:
+        return GETAL_WOORDEN[m[1]] + TIENTALLEN[m[2]]
+    return None
+
+
+def jaar_in_woorden(w: str) -> int | None:
+    """'negentienhonderdvijfentachtig' -> 1985, 'tweeduizend twee' -> 2002."""
+    w = w.lower().replace(" ", "")
+    for basis, waarde in (("negentienhonderd", 1900), ("achttienhonderd", 1800), ("tweeduizend", 2000)):
+        if w.startswith(basis):
+            rest = w[len(basis):]
+            if not rest:
+                return waarde
+            n = woord_naar_getal(rest)
+            return waarde + n if n else None
+    return None
+
+
+DATUM_WOORD_RE = re.compile(
+    rf"(?i)(?<![\w])([a-zë]+)[ ]+({_MAAND_ALT})[ ]+"
+    rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zë]*(?:[ ][a-zë]+)?)"
+)
 GEBOORTE_RE = re.compile(
     r"(?i)(geb(?:oren|oorte\w*)?\b|geb\.|date of birth|birth|d\.o\.b\.?|\bdob\b)"
 )
@@ -200,6 +242,21 @@ ADRES_LABEL_RE = re.compile(
 )
 
 
+PLAATS = r"(?:'[sS]-|'[tT][ ])?[A-Z][\w'-]+(?:[ -](?:(?:aan|op|bij|den|de|a/d)[ ])?[A-Z][\w'-]+){0,3}"
+PLAATS_RE = re.compile(
+    rf"(?i:\b(geboren|wonende|woonachtig|wonend|zonder vaste woon- of verblijfplaats))[ ]+"
+    rf"(?i:te|in)[ ]+({PLAATS})"
+)
+DOCUMENT_RE = re.compile(
+    r"(?i)\b(?:paspoort|identiteitskaart|id-kaart|rijbewijs|legitimatiebewijs|verblijfsdocument|"
+    r"verblijfsvergunning)\b[^\n.]{0,50}?\b(?:nummer|nr)\.?[: ]*((?=[A-Za-z]*\d)[A-Za-z0-9]{6,12})(?![\w])"
+)
+KADASTER_RE = re.compile(
+    r"(?i)\bkadastraal[ ]+bekend[ ]+(?:als[ ]+)?((?:gemeente[ ]+)?[^\n]{0,60}?sectie[ ]+[A-Z]{1,2}[, ]+"
+    r"(?:complex(?:aanduiding)?[ ]+)?(?:nummer|nr\.?)[ ]+\d+(?:[ ]*[A-Z][ ]*\d+)?)"
+)
+
+
 def _jaar(jj: str) -> str:
     if len(jj) == 4:
         return jj
@@ -220,6 +277,16 @@ def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
     for m in DATUM_TXT_RE.finditer(tekst):
         if 1 <= int(m[1]) <= 31:
             kandidaten.append((m.start(), m.end(), m[3]))
+    for m in DATUM_WOORD_RE.finditer(tekst):   # "twaalf maart negentienhonderdvijfentachtig"
+        dag = woord_naar_getal(m[1])
+        jaar_tekst, eind = m[3], m.end()
+        jaar = jaar_in_woorden(jaar_tekst)
+        if jaar is None and " " in jaar_tekst:   # tweede woord hoorde er niet bij
+            jaar_tekst = jaar_tekst.split(" ")[0]
+            eind = m.start(3) + len(jaar_tekst)
+            jaar = jaar_in_woorden(jaar_tekst)
+        if dag and dag <= 31 and jaar:
+            kandidaten.append((m.start(), eind, str(jaar)))
     kandidaten.sort()
 
     vondsten, blijft, vorige_eind = [], 0, 0
@@ -238,7 +305,7 @@ def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
 
 
 class Register:
-    """Houdt vaste labels bij voor terugkerende waarden (zoals IBAN's)."""
+    """Houdt vaste labels bij voor terugkerende waarden (rekeningnummers, tegenpartijen)."""
 
     def __init__(self):
         self.labels: dict[tuple[str, str], str] = {}
@@ -249,6 +316,20 @@ class Register:
         if k not in self.labels:
             self.teller[soort] = self.teller.get(soort, 0) + 1
             self.labels[k] = f"[{voorvoegsel} {self.teller[soort]}]"
+        return self.labels[k]
+
+    def masker(self, rekening: str) -> str:
+        """Sterretjes behalve de laatste 4 tekens, uniek per rekening.
+
+        Eindigen twee verschillende rekeningen op dezelfde 4 cijfers, dan krijgt de
+        tweede een volgnummer erachter: "**************4300 (2)".
+        """
+        k = ("iban", rekening)
+        if k not in self.labels:
+            basis = "*" * max(len(rekening) - 4, 4) + rekening[-4:]
+            al = sum(1 for (soort, _), l in self.labels.items()
+                     if soort == "iban" and l.split(" (")[0] == basis)
+            self.labels[k] = basis if not al else f"{basis} ({al + 1})"
         return self.labels[k]
 
 
@@ -274,12 +355,11 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
             if iban_geldig(stuk):
                 sleutel = stuk.replace(" ", "")
                 vondsten.append(Vondst(m.start(1), m.start(1) + len(stuk), "iban",
-                                       register.label("iban", sleutel, "IBAN"), 9))
+                                       register.masker(sleutel), 9))
                 break
     for m in REKENING_LABEL_RE.finditer(tekst):
         sleutel = re.sub(r"\D", "", m[1])
-        vondsten.append(Vondst(m.start(1), m.end(1), "iban",
-                               register.label("iban", sleutel, "rekening"), 8))
+        vondsten.append(Vondst(m.start(1), m.end(1), "iban", register.masker(sleutel), 8))
 
     for m in EMAIL_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(), m.end(), "email", "[e-mail]", 7))
@@ -293,6 +373,13 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
             vondsten.append(Vondst(m.start(), m.end(), "adres", "[adres]", 4))
     for m in ADRES_LABEL_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(1), m.end(1), "adres", "[adres]", 3))
+    for m in PLAATS_RE.finditer(tekst):
+        soort = "geboorteplaats" if m[1].lower() == "geboren" else "woonplaats"
+        vondsten.append(Vondst(m.start(2), m.end(2), "adres", f"[{soort}]", 3))
+    for m in DOCUMENT_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 8))
+    for m in KADASTER_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(1), m.end(1), "adres", "[kadastrale aanduiding]", 4))
 
     data, blijft = vind_data(tekst, alle_datums)
     vondsten.extend(data)
@@ -311,6 +398,7 @@ class Vermelding:
     achternaam: str | None
     positie: tuple[int, int]          # (pagina, teken) voor de volgorde van labels
     hint: str | None = None           # "achternaam" / "voornaam" bij labels als "Achternaam:"
+    roepnaam: str | None = None       # uit --namen: "Johannes Petrus Jansen = Hans"
 
 
 @dataclass
@@ -320,6 +408,11 @@ class Persoon:
     achternaam: str | None = None
     positie: tuple[int, int] = (10**9, 0)
     label: str = ""
+    roepnaam: str | None = None
+
+    @property
+    def alle_voornamen(self) -> list[str]:
+        return self.voornamen + ([self.roepnaam] if self.roepnaam and self.roepnaam not in self.voornamen else [])
 
 
 def _norm(s: str | None) -> str:
@@ -409,6 +502,10 @@ class NaamHerkenner:
             return False
         if any(_norm(d) in GEEN_NAAM for d in delen):
             return False
+        # Elk naamdeel (behalve tussenvoegsels) begint met een hoofdletter; zo valt
+        # "Jan de koopsom" af.
+        if any(not w[0].isupper() for d in delen for w in d.split() if not _tv(w)):
+            return False
         return all(len(d) >= 2 and not any(c.isdigit() for c in d) for d in delen)
 
     def vermeldingen(self, paginas: list[str], labels: bool = True) -> list[Vermelding]:
@@ -420,7 +517,11 @@ class NaamHerkenner:
                 uit.append(v)
 
         for regel in self.extra_namen:
-            voeg_toe(regel, (-1, 0))
+            naam, _, roepnaam = regel.partition("=")
+            v = ontleed_naam(naam, (-1, 0))
+            if v and self._toegestaan(v):
+                v.roepnaam = roepnaam.strip() or None
+                uit.append(v)
         for p, tekst in enumerate(paginas):
             for m in TITEL_NAAM_RE.finditer(tekst):
                 # Na een titel is één woord een achternaam ("Dhr. Jansen").
@@ -456,6 +557,8 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
                 p.voornamen.append(vn)
         if v.initialen and len(v.initialen) > len(p.initialen):
             p.initialen = v.initialen
+        if v.roepnaam:
+            p.roepnaam = v.roepnaam
 
     volledig = [v for v in vermeldingen if v.achternaam and v.voornamen]
     initiaal = [v for v in vermeldingen if v.achternaam and not v.voornamen and v.initialen]
@@ -494,7 +597,7 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
             personen.append(p)
 
     def met_voornaam(n):
-        return [p for p in personen if n.lower() in (x.lower() for x in p.voornamen)]
+        return [p for p in personen if n.lower() in (x.lower() for x in p.alle_voornamen)]
 
     for v in sorted(voor, key=lambda v: v.positie):
         kand = met_voornaam(v.voornamen[0])
@@ -515,8 +618,20 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
         p = Persoon(voornamen=[woord], positie=v.positie)
         personen.append(p)
 
-    for i, p in enumerate(sorted(personen, key=lambda p: p.positie), 1):
-        p.label = f"Persoon {i}"
+    # Label = roepnaam of eerste voornaam; zonder bekende voornaam "Persoon N".
+    # Twee verschillende personen met dezelfde voornaam: "Jan" en "Jan (2)".
+    gebruikt: dict[str, int] = {}
+    zonder = 0
+    for p in sorted(personen, key=lambda p: p.positie):
+        basis = p.roepnaam or (p.voornamen[0] if p.voornamen else None)
+        if basis:
+            basis = _hoofdletter(basis) if basis.isupper() else basis
+            gebruikt[basis.lower()] = gebruikt.get(basis.lower(), 0) + 1
+            n = gebruikt[basis.lower()]
+            p.label = basis if n == 1 else f"{basis} ({n})"
+        else:
+            zonder += 1
+            p.label = f"Persoon {zonder}"
 
     families: dict[str, str] = {}
     letters = iter("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -527,10 +642,17 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
     return personen, families
 
 
+def _hoofdletter(t: str) -> str:
+    """'JANSEN' -> 'Jansen', 'BAKKER-SMIT' -> 'Bakker-Smit'."""
+    return "-".join(x[:1].upper() + x[1:].lower() for x in t.split("-"))
+
+
 def _tok(t: str) -> str:
     if _tv(t):
         return f"(?i:{re.escape(t)})"
-    return f"(?:{re.escape(t)}|{re.escape(t.upper())})"
+    # Akten en banken schrijven namen vaak in hoofdletters: JANSEN = Jansen.
+    vormen = sorted({t, t.upper(), _hoofdletter(t)}, key=len, reverse=True)
+    return "(?:" + "|".join(re.escape(v) for v in vormen) + ")"
 
 
 def _achternaam_patroon(a: str) -> str:
@@ -542,11 +664,11 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
     patronen: list[tuple[str, str]] = []
     voornaam_telling: dict[str, int] = {}
     for p in personen:
-        for vn in p.voornamen:
+        for vn in p.alle_voornamen:
             voornaam_telling[vn.lower()] = voornaam_telling.get(vn.lower(), 0) + 1
 
     for p in personen:
-        vn_alt = "|".join(_tok(v) for v in p.voornamen)
+        vn_alt = "|".join(_tok(v) for v in p.alle_voornamen)
         inits = {v[0].upper() for v in p.voornamen} | ({p.initialen[0]} if p.initialen else set())
         init_pat = (rf"(?:{'|'.join(sorted(inits))})(?:\.[ ]?|[ ])(?:[{HOOFD}](?:\.[ ]?|[ ])){{0,4}}"
                     if inits else None)
@@ -563,11 +685,10 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
                 patronen.append((rf"{ach},[ ]?(?:{'|'.join(voor_deel)})(?:[ ]{TV_I}){{0,3}}", p.label))
             fam = families.get(_norm(p.achternaam))
             patronen.append((ach, fam or p.label))
-        for vn in p.voornamen:
+        for vn in p.alle_voornamen:
+            # Een losse voornaam die bij meerdere personen hoort, blijft gewoon staan.
             if voornaam_telling[vn.lower()] == 1:
                 patronen.append((_tok(vn), p.label))
-            else:
-                patronen.append((_tok(vn), "[voornaam]"))
 
     # Letterlijke vermeldingen als vangnet.
     for v in vermeldingen:
@@ -576,7 +697,7 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
         label = next((p.label for p in personen
                       if (v.achternaam and _norm(p.achternaam) == _norm(v.achternaam))
                       or (not v.achternaam and v.voornamen and v.voornamen[0].lower()
-                          in (x.lower() for x in p.voornamen))), None)
+                          in (x.lower() for x in p.alle_voornamen))), None)
         tekst = re.sub(r"\s+", " ", v.tekst).strip(" ,.;:")
         if label and len(tekst) >= 2:
             patronen.append((r"[ ]+".join(re.escape(t) for t in tekst.split()), label))
@@ -763,8 +884,8 @@ def anonieme_bestandsnaam(stam: str, patronen, register: Register) -> str:
 
 def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> None:
     sleutel = {
-        "personen": {p.label: {"voornamen": p.voornamen, "initialen": p.initialen,
-                               "achternaam": p.achternaam} for p in personen},
+        "personen": {p.label: {"voornamen": p.voornamen, "roepnaam": p.roepnaam,
+                               "initialen": p.initialen, "achternaam": p.achternaam} for p in personen},
         "rekeningen en tegenpartijen": {label: waarde for (_, waarde), label in register.labels.items()},
     }
     pad.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -780,6 +901,8 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
                 origineel = re.sub(r"\s+", " ", tekst[v.start:v.eind]).strip()
                 if v.soort in ("datum", "geboortedatum") or len(origineel) < 3:
                     continue
+                if origineel.lower() == v.vervanging.lower():
+                    continue   # een losse voornaam blijft zichzelf ("Jan" -> "Jan")
                 if re.search(rf"{NW}{re.escape(origineel)}{NA}", nieuw):
                     lekken.append((i, v.soort))
     return lekken
@@ -804,7 +927,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--uitvoer", type=Path, default=Path("geanonimiseerd"),
                     help="uitvoermap (standaard: ./geanonimiseerd)")
     ap.add_argument("--namen", type=Path,
-                    help="tekstbestand met namen die zeker vervangen moeten worden (één per regel)")
+                    help="tekstbestand met namen die zeker vervangen moeten worden (één per regel); "
+                         "met '= roepnaam' erachter wordt die roepnaam het label")
     ap.add_argument("--behoud", type=Path,
                     help="tekstbestand met woorden/namen die NIET vervangen mogen worden (één per regel)")
     ap.add_argument("--alle-datums", action="store_true",

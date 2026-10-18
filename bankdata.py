@@ -3,9 +3,9 @@
 Anders dan bij PDF's blijven datums en bedragen hier staan: die zijn juist nodig om
 uitgaven te analyseren. Wat wordt vervangen:
 
-  * eigen rekeningnummers      -> "[eigen rekening 1]"
-  * andere rekeningnummers     -> "[IBAN 1]", "[IBAN 2]", ... (vast per rekening)
-  * namen van privépersonen    -> "Persoon 1", ... (ook in omschrijvingen)
+  * rekeningnummers            -> sterretjes behalve de laatste 4 tekens (uniek per rekening)
+  * namen van privépersonen    -> de voornaam, of "Persoon 1" als die onbekend is
+                                  (ook in omschrijvingen)
   * kenmerken/referenties      -> "[kenmerk]"
   * pasnummers                 -> "[pasnummer]"
   * klant-/polis-/contractnrs  -> "[klantnummer]"
@@ -243,14 +243,12 @@ class BankAnonimiseerder:
                     if k < len(rollen) and rollen[k] == rol and cel.strip():
                         yield r, k, cel
 
-        # Ronde 1: rekeningen en namen verzamelen.
+        # Ronde 1: rekeningen en namen verzamelen. Eigen rekeningen eerst, zodat die
+        # bij gelijke laatste cijfers het label zonder volgnummer krijgen.
         register = an.Register()
-        eigen = []
         for _, _, cel in cellen("eigen"):
-            if _sleutel(cel) not in eigen:
-                eigen.append(_sleutel(cel))
-        for i, s in enumerate(eigen, 1):
-            register.labels[("iban", s)] = f"[eigen rekening {i}]"
+            if _is_rekening(cel):
+                register.masker(_sleutel(cel))
 
         # Alleen titels ("Dhr. ...") en --namen; "Naam: ..." wordt hieronder per geval
         # beoordeeld, omdat daar vaak een bedrijfsnaam staat.
@@ -298,7 +296,7 @@ class BankAnonimiseerder:
                 if not cel.strip() or rol == "behoud":
                     continue
                 if rol in ("eigen", "tegenrekening") and _is_rekening(cel):
-                    rij[k] = register.label("iban", _sleutel(cel), "IBAN")
+                    rij[k] = register.masker(_sleutel(cel))
                     tel("iban")
                 elif rol == "kenmerk":
                     rij[k] = "[kenmerk]"
@@ -313,7 +311,7 @@ class BankAnonimiseerder:
                     else:
                         rij[k] = vrije_tekst(cel)
                 elif rol == "auto" and an.iban_geldig(_sleutel(cel)):
-                    rij[k] = register.label("iban", _sleutel(cel), "IBAN")
+                    rij[k] = register.masker(_sleutel(cel))
                     tel("iban")
                 elif rol == "vrij" or (rol == "auto" and not GETAL_OF_DATUM_RE.match(cel)):
                     rij[k] = vrije_tekst(cel)

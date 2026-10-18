@@ -6,13 +6,36 @@ Script om PDF-bestanden en bankexports te anonimiseren, zodat je ze veilig(er) a
 
 | Gegeven | Wordt |
 |---|---|
-| Namen | vaste pseudoniemen: `Persoon 1`, `Persoon 2`, … (dezelfde persoon krijgt overal hetzelfde label) |
+| Namen | alleen de voornaam: `Jan Pieter Jansen`, `J. Jansen` en `Dhr. Jansen` → `Jan` |
+| Twee verschillende personen met dezelfde voornaam | `Jan` en `Jan (2)` |
+| Persoon van wie geen voornaam bekend is (bijv. alleen `A. de Vries`) | `Persoon 1`, `Persoon 2`, … |
 | Alleen een achternaam die bij meerdere personen hoort (bijv. "Dhr. Jansen") | `Familie A` |
 | BSN | `[BSN]` |
 | Adressen (straat + huisnummer, postcode + plaats, velden als "Adres:") | `[adres]` |
-| Geboortedata | alleen het geboortejaar, bijv. `1985` |
-| IBAN / rekeningnummers | `[IBAN 1]`, `[IBAN 2]`, … (vast per rekening) |
+| Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit: "vijf april negentienhonderdvijfentachtig") |
+| IBAN / rekeningnummers | sterretjes behalve de laatste 4: `**************4300` |
+| Twee rekeningen met dezelfde laatste 4 cijfers | `**************4300` en `**************4300 (2)` |
 | E-mailadressen en telefoonnummers | `[e-mail]` / `[telefoon]` |
+
+### Notariële akten
+
+Akten noemen alle voornamen voluit ("de heer Johannes Petrus Maria JANSEN"), vaak met de
+achternaam in hoofdletters. Het script herkent dat en maakt er `Johannes` van. Verder:
+
+| In de akte | Wordt |
+|---|---|
+| geboren te Amersfoort | geboren te `[geboorteplaats]` |
+| wonende te Utrecht | wonende te `[woonplaats]` |
+| paspoort/identiteitskaart/rijbewijs nummer … | `[documentnummer]` |
+| kadastraal bekend gemeente …, sectie …, nummer … | kadastraal bekend `[kadastrale aanduiding]` |
+
+**Roepnaam:** staat in de akte "Johannes" maar heet iemand eigenlijk Hans, zet dan in `namen.txt`:
+
+```
+Johannes Petrus Maria Jansen = Hans
+```
+
+Dan wordt die persoon overal `Hans`.
 
 Daarnaast worden metadata (auteur, titel), bladwijzers en bijlagen uit de PDF verwijderd,
 worden ingevulde formuliervelden meegenomen, en wordt een naam in de bestandsnaam ook vervangen.
@@ -31,9 +54,8 @@ Hier blijven **datums en bedragen** juist staan, zodat een AI je uitgaven nog ka
 
 | Gegeven | Wordt |
 |---|---|
-| Je eigen rekeningnummer(s) | `[eigen rekening 1]` (ook als ze als tegenrekening voorkomen, bijv. sparen) |
-| Andere rekeningnummers | `[IBAN 1]`, `[IBAN 2]`, … (vast per rekening, dus terugkerende betalingen blijven herkenbaar) |
-| Privépersonen als tegenpartij (`HR J JANSEN EO`, `J. Jansen`) | `Persoon 1`, … – ook in de omschrijving |
+| Rekeningnummers | sterretjes behalve de laatste 4 (`**************4300`), uniek per rekening, dus terugkerende betalingen blijven herkenbaar |
+| Privépersonen als tegenpartij (`HR J JANSEN EO`, `J. Jansen`) | de voornaam als die bekend is (via `namen.txt`), anders `Persoon 1`, … – ook in de omschrijving |
 | Bedrijven (Albert Heijn, Eneco, Gemeente, …) | blijven staan; met `--alle-tegenpartijen` → `[tegenpartij 1]` |
 | Machtigingskenmerk, betalingskenmerk, transactiereferentie | `[kenmerk]` |
 | Pasnummers, klant-/polis-/contractnummers in omschrijvingen | `[pasnummer]` / `[klantnummer]` |
@@ -71,7 +93,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 
 | Optie | Betekenis |
 |---|---|
-| `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden) |
+| `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
 | `--behoud behoud.txt` | woorden die juist **niet** vervangen mogen worden (bijv. een bedrijfsnaam die als naam wordt gezien) |
 | `--alle-datums` | vervang álle datums door het jaartal, niet alleen geboortedata |
 | `--geen-ner` | geen taalmodel gebruiken, alleen patronen en `--namen` |

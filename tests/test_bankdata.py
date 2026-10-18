@@ -31,14 +31,19 @@ def test_is_persoon():
 
 def test_ing(tmp_path):
     r, uit = _verwerk(tmp_path, "NL91ABNA0417164300_2024.csv", ING)
-    assert "eigen rekening 1" in r.tekst.name
+    assert r.tekst.name == "4300_2024_anoniem.csv"   # sterretjes mogen niet in een bestandsnaam
     assert "JANSEN" not in uit.upper() and "NL20INGB" not in uit and "NL91ABNA" not in uit
     assert "Kerkstraat" not in uit and "12345678" not in uit
     assert "Albert Heijn" in uit and "Eneco Consumenten" in uit   # bedrijven blijven staan
     assert "750,00" in uit and "20240110" in uit                   # bedragen en datums ook
     assert uit.count("Persoon 1") == 4                              # HR J JANSEN = J. Jansen
-    assert '"[eigen rekening 1]";"[eigen rekening 1]"' in uit
+    assert '"**************4300";"**************4300"' in uit
     assert not r.lekken
+
+
+def test_voornaam_uit_namenlijst(tmp_path):
+    _, uit = _verwerk(tmp_path, "x.csv", ING, namen=["Jan Jansen"])
+    assert uit.count('"Jan"') == 2 and "Persoon" not in uit
 
 
 def test_alle_tegenpartijen(tmp_path):
@@ -50,5 +55,5 @@ def test_abn_txt_zonder_kopregel(tmp_path):
     regel = ("123456789\tEUR\t20240110\t954,33\t204,33\t20240110\t-750,00\t"
              "/TRTP/SEPA OVERBOEKING/IBAN/NL20INGB0001234567/BIC/INGBNL2A/NAME/J JANSEN/REMI/HUUR/\n")
     _, uit = _verwerk(tmp_path, "TXT240101.TXT", regel * 2)
-    assert uit.startswith("[eigen rekening 1]\tEUR\t20240110")
-    assert "/NAME/Persoon 1/" in uit and "[IBAN 1]" in uit and "-750,00" in uit
+    assert uit.startswith("*****6789\tEUR\t20240110")
+    assert "/NAME/Persoon 1/" in uit and "/IBAN/**************4567/" in uit and "-750,00" in uit

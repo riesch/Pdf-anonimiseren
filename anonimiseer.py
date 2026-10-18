@@ -424,8 +424,11 @@ class Register:
 def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list[Vondst], int]:
     vondsten: list[Vondst] = []
 
+    # Prioriteit bij gelijke lengte: "BSN 123…" (11) > documentnummer na "paspoort" (10)
+    # > los nummer dat door de elfproef komt (9). Een paspoortnummer van 9 cijfers kan
+    # namelijk toevallig ook door de elfproef komen.
     for m in BSN_LABEL_RE.finditer(tekst):
-        vondsten.append(Vondst(m.start(1), m.end(1), "bsn", "[BSN]", 9))
+        vondsten.append(Vondst(m.start(1), m.end(1), "bsn", "[BSN]", 11))
     for m in BSN_RE.finditer(tekst):
         if elfproef(re.sub(r"\D", "", m[1])):
             vondsten.append(Vondst(m.start(1), m.end(1), "bsn", "[BSN]", 9))
@@ -471,7 +474,7 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
             if m[groep]:
                 vondsten.append(Vondst(m.start(groep), m.end(groep), "adres", label, 4))
     for m in DOCUMENT_RE.finditer(tekst):
-        vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 8))
+        vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 10))
     for m in KADASTER_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(1), m.end(1), "adres", "[kadastrale aanduiding]", 4))
     for m in KENTEKEN_RE.finditer(tekst):

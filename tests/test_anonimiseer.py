@@ -208,6 +208,11 @@ def test_adres_uit_context(anon, tekst, verwacht):
     ("reisdocument: NW1234567", "reisdocument: [documentnummer]"),
     ("rijbewijs nummer 5123456789", "rijbewijs nummer [documentnummer]"),
     ("paspoort, afgegeven op 12-03-2015, BSN 111222333", "paspoort, afgegeven op 12-03-2015, BSN [BSN]"),
+    # Een documentnummer van 9 cijfers dat toevallig door de elfproef komt, blijft een documentnummer.
+    ("zich legitimerende met paspoort nummer 123456782, afgegeven",
+     "zich legitimerende met paspoort nummer [documentnummer], afgegeven"),
+    ("paspoortnummer: 111222333", "paspoortnummer: [documentnummer]"),
+    ("paspoort nummer NW1234567, BSN 111222333", "paspoort nummer [documentnummer], BSN [BSN]"),
     ("paspoort verlopen in 2020", "paspoort verlopen in 2020"),
 ])
 def test_documentnummers(anon, tekst, verwacht):

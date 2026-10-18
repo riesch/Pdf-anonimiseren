@@ -228,7 +228,7 @@ class FamilieIndex:
         for m in BSN_KANDIDAAT_RE.finditer(tekst):
             naam = self._zoek("bsn", re.sub(r"\D", "", m[1]).zfill(9))
             if naam:
-                uit.append(an.Vondst(m.start(1), m.end(1), "bsn", f"[BSN {naam}]", 10))
+                uit.append(an.Vondst(m.start(1), m.end(1), "bsn", f"[BSN {naam}]", 12))
         for start, eind, jaar, iso in an.datum_kandidaten(tekst):
             if self._zoek("geboortedatum", iso):
                 uit.append(an.Vondst(start, eind, "geboortedatum", jaar, 10))

@@ -30,7 +30,8 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anonimiseer as an
+from namen import Persoon
+from patronen import EMAIL_RE, TELEFOON_RE, Vondst, datum_kandidaten, elfproef
 
 SLEUTEL_PAD = Path.home() / ".pdf-anonimiseren" / "sleutel"
 PROGRAMMAMAP = Path(__file__).resolve().parent
@@ -267,7 +268,7 @@ class FamilieIndex:
     """Zoekt BSN's, geboortedata, adressen, telefoonnummers, e-mailadressen, kentekens en
     eigen termen van familieleden in tekst."""
 
-    def __init__(self, gegevens: Familiegegevens, sleutel: bytes | None, personen: list[an.Persoon],
+    def __init__(self, gegevens: Familiegegevens, sleutel: bytes | None, personen: list[Persoon],
                  extra_namen: list[str]):
         self.sleutel = sleutel
         self.afdrukken: dict[str, tuple[str, str]] = {}   # afdruk -> (soort, naam)
@@ -296,24 +297,24 @@ class FamilieIndex:
         gevonden = self.afdrukken.get(vingerafdruk(self.sleutel, soort, waarde))
         return gevonden[1] if gevonden else None
 
-    def vind(self, tekst: str) -> list[an.Vondst]:
+    def vind(self, tekst: str) -> list[Vondst]:
         if not self.afdrukken and not self.leesbaar:
             return []
         uit = []
         for m in BSN_KANDIDAAT_RE.finditer(tekst):
             naam = self._zoek("bsn", re.sub(r"\D", "", m[1]).zfill(9))
             if naam:
-                uit.append(an.Vondst(m.start(1), m.end(1), "bsn", f"[BSN {naam}]", 12))
-        for start, eind, jaar, iso in an.datum_kandidaten(tekst):
+                uit.append(Vondst(m.start(1), m.end(1), "bsn", f"[BSN {naam}]", 12))
+        for start, eind, jaar, iso in datum_kandidaten(tekst):
             if self._zoek("geboortedatum", iso):
-                uit.append(an.Vondst(start, eind, "geboortedatum", jaar, 10))
+                uit.append(Vondst(start, eind, "geboortedatum", jaar, 10))
         for m in POSTCODE_KANDIDAAT_RE.finditer(tekst):
             pc = _alnum(m[1])
             naam = m[2] and self._zoek("adres", f"postcode-nr:{pc}{_alnum(m[2])}")
             if naam:
-                uit.append(an.Vondst(m.start(), m.end(), "adres", f"[adres {naam}]", 10))
+                uit.append(Vondst(m.start(), m.end(), "adres", f"[adres {naam}]", 10))
             elif naam := self._zoek("adres", f"postcode:{pc}"):
-                uit.append(an.Vondst(m.start(1), m.end(1), "adres", f"[adres {naam}]", 10))
+                uit.append(Vondst(m.start(1), m.end(1), "adres", f"[adres {naam}]", 10))
         for m in HUISNUMMER_RE.finditer(tekst):
             # Probeer 1 tot 5 woorden vóór het huisnummer als straatnaam.
             regelbegin = tekst.rfind("\n", 0, m.start()) + 1
@@ -322,7 +323,7 @@ class FamilieIndex:
                 straat = " ".join(w[0] for w in woorden[-k:])
                 naam = self._zoek("adres", f"straat:{norm_straat(straat)}{_alnum(m[1])}")
                 if naam:
-                    uit.append(an.Vondst(regelbegin + woorden[-k].start(), m.end(), "adres",
+                    uit.append(Vondst(regelbegin + woorden[-k].start(), m.end(), "adres",
                                          f"[adres {naam}]", 10))
                     break
         if not self.leesbaar:
@@ -330,15 +331,15 @@ class FamilieIndex:
         def leesbaar(soort, waarde):
             return self.leesbaar.get((soort, waarde))
 
-        for m in an.TELEFOON_RE.finditer(tekst):
+        for m in TELEFOON_RE.finditer(tekst):
             if g := leesbaar("telefoon", norm_telefoon(m[0])):
-                uit.append(an.Vondst(m.start(), m.end(), "telefoon", f"[telefoon {g[1]}]", 12))
-        for m in an.EMAIL_RE.finditer(tekst):
+                uit.append(Vondst(m.start(), m.end(), "telefoon", f"[telefoon {g[1]}]", 12))
+        for m in EMAIL_RE.finditer(tekst):
             if g := leesbaar("e-mail", m[0].lower()):
-                uit.append(an.Vondst(m.start(), m.end(), "email", f"[e-mail {g[1]}]", 12))
+                uit.append(Vondst(m.start(), m.end(), "email", f"[e-mail {g[1]}]", 12))
         for m in re.finditer(r"(?<![\w-])[A-Za-z0-9]{1,3}(?:[- ]?[A-Za-z0-9]{1,3}){1,2}(?![\w-])", tekst):
             if len(norm_kenteken(m[0])) == 6 and (g := leesbaar("kenteken", norm_kenteken(m[0]))):
-                uit.append(an.Vondst(m.start(), m.end(), "kenteken", f"[kenteken {g[1]}]", 12))
+                uit.append(Vondst(m.start(), m.end(), "kenteken", f"[kenteken {g[1]}]", 12))
         # Eigen termen ("Basisschool De Regenboog"): reeksen woorden proberen, langste eerst,
         # niet over een witregel heen.
         woorden = list(re.finditer(r"\w+", tekst))
@@ -348,19 +349,19 @@ class FamilieIndex:
                 if any(tekst[a.end():b.start()].count("\n") > 1 for a, b in zip(stuk, stuk[1:])):
                     continue
                 if g := leesbaar("term", " ".join(w[0].lower() for w in stuk)):
-                    uit.append(an.Vondst(stuk[0].start(), stuk[-1].end(), "overig", f"[{g[0]} {g[1]}]", 12))
+                    uit.append(Vondst(stuk[0].start(), stuk[-1].end(), "overig", f"[{g[0]} {g[1]}]", 12))
                     break
         return uit
 
 
-def maak_index(gegevens: Familiegegevens | None, sleutel: bytes | None, personen: list[an.Persoon],
+def maak_index(gegevens: Familiegegevens | None, sleutel: bytes | None, personen: list[Persoon],
                extra_namen: list[str]) -> FamilieIndex | None:
     if not gegevens or gegevens.leeg:
         return None
     return FamilieIndex(gegevens, sleutel, personen, extra_namen)
 
 
-def verfijn(gekozen: list[an.Vondst], eigen: list[an.Vondst]) -> None:
+def verfijn(gekozen: list[Vondst], eigen: list[Vondst]) -> None:
     """Een algemene vondst ("[adres]") die een familiegegeven bevat, krijgt de naam erbij."""
     for v in gekozen:
         if v in eigen:
@@ -384,7 +385,7 @@ def _vraag(invoer, tekst: str, controleer=None, fout: str = "") -> str:
 
 
 def _datum_iso(tekst: str) -> str | None:
-    kandidaten = an.datum_kandidaten(tekst.strip())
+    kandidaten = datum_kandidaten(tekst.strip())
     if len(kandidaten) == 1 and kandidaten[0][0] == 0 and kandidaten[0][1] == len(tekst.strip()):
         return kandidaten[0][3]
     return None
@@ -401,7 +402,7 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
     if not naam:
         return None
     roepnaam = _vraag(invoer, "  Roepnaam (Enter = eerste voornaam): ")
-    bsn = _vraag(invoer, "  BSN: ", lambda a: an.elfproef(re.sub(r"\D", "", a)),
+    bsn = _vraag(invoer, "  BSN: ", lambda a: elfproef(re.sub(r"\D", "", a)),
                  "Dit is geen geldig BSN (elfproef klopt niet), probeer opnieuw.")
     geboren = _vraag(invoer, "  Geboortedatum (bijv. 10-02-1980 of 10 februari 1980): ", _datum_iso,
                      "Onbekende datum, gebruik bijv. 10-02-1980 of 10 februari 1980.")
@@ -434,7 +435,7 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
     lijst("  Telefoonnummer (Enter = klaar): ", "telefoon",
           lambda a: len(norm_telefoon(a)) >= 10, "Dat lijkt geen volledig telefoonnummer.")
     lijst("  E-mailadres (Enter = klaar): ", "e-mail",
-          lambda a: an.EMAIL_RE.fullmatch(a.strip()), "Dat lijkt geen e-mailadres.")
+          lambda a: EMAIL_RE.fullmatch(a.strip()), "Dat lijkt geen e-mailadres.")
     lijst("  Kenteken (Enter = klaar): ", "kenteken",
           lambda a: len(norm_kenteken(a)) == 6, "Een Nederlands kenteken heeft 6 letters/cijfers, bijv. 12-ABC-3.")
     print("  Overige termen die naar deze persoon verwijzen, zoals werkgever, school of huisarts.")

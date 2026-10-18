@@ -19,13 +19,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import anonimiseer as an
+from typing import TYPE_CHECKING
+
+from namen import Persoon, _norm
+from patronen import HOOFD, KLEIN, NA, NW, TV_I, _tv, datum_kandidaten
+
+if TYPE_CHECKING:   # alleen voor de typeaanduiding; voorkomt een kringimport
+    from anonimiseer import Resultaat
 
 MARKERING = "_CONTROLEREN"
 LABEL_RE = re.compile(r"\[[^\]\n]{1,40}\]|\*{4,}\w{4}(?: \(\d+\))?")
 TITEL_RE = re.compile(
-    rf"(?i:\b(?:dhr|mevr|mw|de heer|heer|mevrouw|meneer)\.?)[ ]+((?:[{an.HOOFD}]\.[ ]?)*"
-    rf"(?:{an.TV_I}[ ])*[{an.HOOFD}][{an.KLEIN}{an.HOOFD}'-]+)"
+    rf"(?i:\b(?:dhr|mevr|mw|de heer|heer|mevrouw|meneer)\.?)[ ]+((?:[{HOOFD}]\.[ ]?)*"
+    rf"(?:{TV_I}[ ])*[{HOOFD}][{KLEIN}{HOOFD}'-]+)"
 )
 NEGEN_CIJFERS_RE = re.compile(r"(?<![\d.,\w-])(\d{4}\.\d{2}\.\d{3}|\d{3}[ .]\d{3}[ .]\d{3}|\d{9})(?![\d\w]|[.,]\d)")
 # Achternamen die ook een gewoon woord zijn: in kleine letters is dat meestal het woord.
@@ -70,7 +76,7 @@ def _in_label(tekst: str, start: int, eind: int) -> bool:
     return any(m.start() <= start and eind <= m.end() for m in LABEL_RE.finditer(tekst, max(0, start - 45), eind + 45))
 
 
-def verboden_woorden(personen: list[an.Persoon], behoud: set[str]) -> list[tuple[re.Pattern, re.Pattern, str]]:
+def verboden_woorden(personen: list[Persoon], behoud: set[str]) -> list[tuple[re.Pattern, re.Pattern, str]]:
     """Woorden van opgegeven personen die na het anonimiseren nergens meer mogen staan.
 
     Per woord twee patronen, strenger dan bij het anonimiseren zelf: als los woord in
@@ -83,18 +89,18 @@ def verboden_woorden(personen: list[an.Persoon], behoud: set[str]) -> list[tuple
         if not p.opgegeven or not p.label:
             continue
         for w in " ".join(p.achternamen).replace("-", " ").split():
-            if not an._tv(w):
+            if not _tv(w):
                 woorden.setdefault(w, "achternaam van familielid")
         for w in p.alle_voornamen:
             if w.lower() != p.label.lower():
                 woorden.setdefault(w, "voornaam van familielid")
-    return [(re.compile(rf"(?i){an.NW}{re.escape(w)}{an.NA}"),
+    return [(re.compile(rf"(?i){NW}{re.escape(w)}{NA}"),
              re.compile(rf"(?i){re.escape(w)}") if len(w) >= 5 else None, soort)
             for w, soort in woorden.items()
-            if len(w) >= 3 and w.lower() not in labels and an._norm(w) not in behoud]
+            if len(w) >= 3 and w.lower() not in labels and _norm(w) not in behoud]
 
 
-def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[an.Persoon], familie=None,
+def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[Persoon], familie=None,
                        behoud: set[str] | None = None, nlp=None, namen_verdacht: bool = True,
                        datums_verdacht: bool = True) -> list[Bevinding]:
     """Kijk de uitvoer na. delen = [(plek, tekst)], bijv. [("pagina 1", "...")]."""
@@ -153,7 +159,7 @@ def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[an.Persoon],
         for m in IBAN_ACHTIG_RE.finditer(tekst):
             verdacht("lijkt op rekeningnummer", m.start(), m.end())
         if datums_verdacht:
-            for start, eind, _, _ in an.datum_kandidaten(tekst):
+            for start, eind, _, _ in datum_kandidaten(tekst):
                 verdacht("volledige datum (geboortedatum?)", start, eind)
     return uit
 
@@ -167,7 +173,7 @@ def markeer(pad: Path | None) -> Path | None:
     return nieuw
 
 
-def schrijf_rapport(pad: Path, bron: str, r: an.Resultaat, bevindingen: list[Bevinding]) -> None:
+def schrijf_rapport(pad: Path, bron: str, r: Resultaat, bevindingen: list[Bevinding]) -> None:
     lekken = [b for b in bevindingen if b.ernst == "lek"]
     verdacht = [b for b in bevindingen if b.ernst == "verdacht"]
     regels = [f"# Controlerapport: {bron}", ""]
@@ -211,8 +217,8 @@ def schrijf_rapport(pad: Path, bron: str, r: an.Resultaat, bevindingen: list[Bev
     pad.write_text("\n".join(regels) + "\n", encoding="utf-8")
 
 
-def afronden(r: an.Resultaat, bron: Path, uitmap: Path, bevindingen: list[Bevinding],
-             rapport: bool = True) -> an.Resultaat:
+def afronden(r: Resultaat, bron: Path, uitmap: Path, bevindingen: list[Bevinding],
+             rapport: bool = True) -> Resultaat:
     """Markeer bij lekken, schrijf het rapport en geef het bijgewerkte resultaat terug."""
     # Eerdere controles (bijv. gegevens die in de PDF bleven staan) tellen ook als lek.
     bevindingen = [Bevinding("lek", f"{soort} stond nog in de PDF",

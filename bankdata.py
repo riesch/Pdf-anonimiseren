@@ -24,6 +24,8 @@ import re
 from pathlib import Path
 
 import anonimiseer as an
+import controle
+from familie import maak_index, verfijn
 
 BANK_EXTENSIES = {".csv", ".tsv", ".txt"}
 
@@ -346,7 +348,6 @@ class Sessie:
             families = an.ken_labels_toe(self.personen, a.alleen_familie)
         self.patronen = an.naam_patronen(self.personen, families, vermeldingen)
         # Zelfde koppeling als bij PDF's: BSN/adres van een familielid krijgt diens naam.
-        from familie import maak_index
         self.familie = maak_index(a.familiegegevens, a.sleutel, self.personen, a.herkenner.extra_namen)
 
     def naam_label(self, waarde: str) -> str:
@@ -393,7 +394,6 @@ class Sessie:
         eigen = self.familie.vind(tekst) if self.familie else []
         gekozen = an.kies_vondsten(vondsten + eigen)
         if eigen:
-            from familie import verfijn
             verfijn(gekozen, eigen)
         for v in gekozen:
             self.tel(v.soort)
@@ -405,7 +405,6 @@ class Sessie:
     def resultaat(self, invoer: Path, uitpad: Path, uitvoer: list[tuple[str, str]],
                   sleutelbestand: Path | None) -> an.Resultaat:
         """uitvoer = [(plek, tekst)]: de geanonimiseerde tekst, bij een ZIP per afschrift."""
-        import controle
         if sleutelbestand:
             an.schrijf_sleutel(sleutelbestand, self.personen, self.register)
         alles = "\n".join(t for _, t in uitvoer)

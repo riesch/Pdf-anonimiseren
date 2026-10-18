@@ -45,12 +45,13 @@ alsnog in het document staan. BSN's, adressen, rekeningnummers enz. worden wel b
 vervangen. Met `--alle-namen` vervang je toch alle namen; met `--familie pad/naar/lijst.txt`
 gebruik je een lijst op een andere plek.
 
-### BSN en adres van familieleden
+### BSN, adres en geboortedatum van familieleden
 
-Je kunt het script ook de BSN's en adressen van je familie laten kennen. Een BSN van
-Richard wordt dan `[BSN Richard]` en zijn adres `[adres Richard]`, zodat een AI nog weet van
-wie het gegeven is. Andere BSN's en adressen worden gewoon `[BSN]` en `[adres]`. Geboortedata
-worden niet opgeslagen; die worden, zoals altijd, ingekort tot het geboortejaar.
+Je kunt het script ook de BSN's, adressen en geboortedata van je familie laten kennen.
+Een BSN van Richard wordt dan `[BSN Richard]` en zijn adres `[adres Richard]`, zodat een AI
+nog weet van wie het gegeven is. Zijn geboortedatum wordt het geboortejaar, ook als er geen
+"geboren" bij staat (bijvoorbeeld in een tabel). Andere BSN's en adressen worden gewoon `[BSN]`
+en `[adres]`.
 
 Toevoegen gaat met vragen:
 
@@ -62,6 +63,7 @@ python anonimiseer.py --familie-toevoegen
   Naam (alle voornamen en achternaam): Richard Pieter Jansen
   Roepnaam (Enter = eerste voornaam):
   BSN: …
+  Geboortedatum (dd-mm-jjjj): …
   Adres 1 – straat (Enter = klaar): …
     Huisnummer + toevoeging (bijv. 12a): …
     Postcode: …
@@ -213,7 +215,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | Optie | Betekenis |
 |---|---|
 | `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
-| `--familie-toevoegen` | met vragen een familielid met BSN en adres toevoegen |
+| `--familie-toevoegen` | met vragen een familielid met BSN, geboortedatum en adres toevoegen |
 | `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |

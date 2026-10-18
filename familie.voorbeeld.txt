@@ -8,7 +8,7 @@
 # Met "= roepnaam" erachter wordt die roepnaam gebruikt in plaats van de eerste voornaam.
 # Ken je alleen de initialen, dan vraagt het script om de voornaam en zet het antwoord hier.
 #
-# BSN en adres voeg je toe met:  python anonimiseer.py --familie-toevoegen
+# BSN, geboortedatum en adres voeg je toe met:  python anonimiseer.py --familie-toevoegen
 # Die komen als onleesbare vingerafdruk onder de naam te staan (ingesprongen regels).
 
 Johannes Petrus Maria Jansen = Hans

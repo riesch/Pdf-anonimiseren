@@ -1,14 +1,13 @@
 """Persoonsgegevens van familieleden herkennen en vervangen door een label met hun naam.
 
-In familie.txt kun je onder een naam ook BSN en adres opslaan:
+In familie.txt kun je onder een naam ook BSN, geboortedatum en adres opslaan:
 
     Richard Pieter Jansen = Richard
         bsn: 4f1c0e...            # vingerafdruk, niet het BSN zelf
         adres: 9b2c7a...          # straat + huisnummer
 
-Een BSN van Richard wordt dan "[BSN Richard]" en zijn adres "[adres Richard]".
-Geboortedata worden niet opgeslagen: die worden, zoals alle geboortedata, ingekort tot
-het geboortejaar.
+Een BSN van Richard wordt dan "[BSN Richard]", zijn adres "[adres Richard]" en zijn
+geboortedatum het geboortejaar (ook zonder "geboren" ervoor, bijv. in een tabel).
 
 De gegevens staan er niet leesbaar in, maar als vingerafdruk (HMAC-SHA256) met een
 geheime sleutel. Die sleutel staat in de sleutelhanger van je besturingssysteem
@@ -35,8 +34,7 @@ SLEUTEL_PAD = Path.home() / ".pdf-anonimiseren" / "sleutel"
 DIENST, ACCOUNT = "pdf-anonimiseren", "familie-sleutel"   # naam in de sleutelhanger
 SYSTEEM = "systeem"
 CONTROLE_RE = re.compile(r"#\s*sleutel-controle:\s*([0-9a-f]+)")
-# Oudere familie.txt-bestanden kunnen nog "geboortedatum:"-regels hebben; die worden genegeerd.
-GEGEVEN_RE = re.compile(r"^\s+(bsn|adres)\s*:\s*([0-9a-f]{16,64})", re.I)
+GEGEVEN_RE = re.compile(r"^\s+(bsn|geboortedatum|adres)\s*:\s*([0-9a-f]{16,64})", re.I)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +229,9 @@ class FamilieIndex:
             naam = self._zoek("bsn", re.sub(r"\D", "", m[1]).zfill(9))
             if naam:
                 uit.append(an.Vondst(m.start(1), m.end(1), "bsn", f"[BSN {naam}]", 10))
+        for start, eind, jaar, iso in an.datum_kandidaten(tekst):
+            if self._zoek("geboortedatum", iso):
+                uit.append(an.Vondst(start, eind, "geboortedatum", jaar, 10))
         for m in POSTCODE_KANDIDAAT_RE.finditer(tekst):
             pc = _alnum(m[1])
             naam = m[2] and self._zoek("adres", f"postcode-nr:{pc}{_alnum(m[2])}")
@@ -282,9 +283,16 @@ def _vraag(invoer, tekst: str, controleer=None, fout: str = "") -> str:
         print(f"    {fout}")
 
 
+def _datum_iso(tekst: str) -> str | None:
+    kandidaten = an.datum_kandidaten(tekst.strip())
+    if len(kandidaten) == 1 and kandidaten[0][0] == 0 and kandidaten[0][1] == len(tekst.strip()):
+        return kandidaten[0][3]
+    return None
+
+
 def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD,
                          sleutelhanger=SYSTEEM) -> str | None:
-    """Vraag naam, roepnaam, BSN en adres(sen) en schrijf vingerafdrukken weg."""
+    """Vraag naam, roepnaam, BSN, geboortedatum en adres(sen) en schrijf vingerafdrukken weg."""
     sleutel = geheime_sleutel(maak=True, pad=sleutelpad, sleutelhanger=sleutelhanger)
     print("Familielid toevoegen. De gegevens worden alleen als vingerafdruk opgeslagen.\n"
           "Enter zonder iets in te vullen = overslaan.\n")
@@ -294,10 +302,14 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
     roepnaam = _vraag(invoer, "  Roepnaam (Enter = eerste voornaam): ")
     bsn = _vraag(invoer, "  BSN: ", lambda a: an.elfproef(re.sub(r"\D", "", a)),
                  "Dit is geen geldig BSN (elfproef klopt niet), probeer opnieuw.")
+    geboren = _vraag(invoer, "  Geboortedatum (dd-mm-jjjj): ", _datum_iso,
+                     "Onbekende datum, gebruik bijv. 12-03-1985.")
 
     afdrukken: list[tuple[str, str, str]] = []   # (soort, afdruk, uitleg)
     if bsn:
         afdrukken.append(("bsn", vingerafdruk(sleutel, "bsn", re.sub(r"\D", "", bsn).zfill(9)), ""))
+    if geboren:
+        afdrukken.append(("geboortedatum", vingerafdruk(sleutel, "geboortedatum", _datum_iso(geboren)), ""))
     nummer = 1
     while True:
         straat = _vraag(invoer, f"  Adres {nummer} – straat (Enter = klaar): ")

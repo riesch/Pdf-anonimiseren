@@ -177,3 +177,22 @@ def test_afbeeldingen_verwijderen(tmp_path):
     assert r.tellingen["afbeelding"] == 1
     with pymupdf.open(r.pdf) as d:
         assert not d[0].get_images() and "Handtekening" in d[0].get_text()
+
+
+def test_datum_in_woorden_over_twee_regels(anon):
+    uit = anon.anonimiseer_tekst("geboren te Utrecht op achttien maart negentienhonderd\ntweeënzeventig,\nwonende")
+    assert uit == "geboren te [geboorteplaats] op 1972,\nwonende"
+
+
+@pytest.mark.parametrize("tekst, verwacht", [
+    ("wonende te 3512 JK Utrecht, Vredenburg 4, gehuwd", "wonende te [adres], gehuwd"),
+    ("wonende te 3512 JK Utrecht,\nNeude 11, gehuwd", "wonende te [adres], gehuwd"),
+    ("Vredenburg 4, 3512 JK Utrecht", "[adres]"),
+    ("wonende te Utrecht, Achter Clarenburg 2, gehuwd", "wonende te [woonplaats], [adres], gehuwd"),
+    ("wonende aan de Neude 11 te Utrecht, gehuwd", "wonende aan de [adres] te [woonplaats], gehuwd"),
+    ("wonende te 3512 JK UTRECHT, KERKSTRAAT 12", "wonende te [adres]"),
+    ("Kerkstraat nummer 12 te Utrecht", "[adres] te Utrecht"),
+    ("zie Artikel 12 van de wet", "zie Artikel 12 van de wet"),
+])
+def test_adres_uit_context(anon, tekst, verwacht):
+    assert anon.anonimiseer_tekst(tekst) == verwacht

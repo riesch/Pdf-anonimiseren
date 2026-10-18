@@ -280,7 +280,8 @@ python anonimiseer.py brief.pdf                     # één bestand
 python anonimiseer.py map_met_pdfs/ -o uitvoer/     # een hele map
 ```
 
-Per PDF krijg je in de map `geanonimiseerd/`:
+Per PDF krijg je in een map `geanonimiseerd/` **naast het bronbestand** (met `-o map` kies je
+zelf een andere plek):
 
 * `<naam>_anoniem.pdf` – de PDF met de gegevens echt verwijderd (niet alleen afgedekt);
 * `<naam>_anoniem.md` – de tekst als Markdown. **Dit bestand is het beste om aan een AI te geven.**

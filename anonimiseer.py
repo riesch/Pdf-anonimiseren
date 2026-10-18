@@ -204,7 +204,7 @@ RANGTELWOORDEN = {"eerste": 1, "derde": 3}
 def woord_naar_getal(w: str) -> int | None:
     """'twaalf' -> 12, 'vijfentachtig' -> 85, 'drieëntwintig' -> 23, 'negen en twintig' -> 29,
     en rangtelwoorden zoals in akten: 'tiende' -> 10, 'eenentwintigste' -> 21 (1 t/m 99)."""
-    w = w.lower().replace("ë", "e").replace("é", "e").replace(" ", "")
+    w = re.sub(r"\s+", "", w.lower().replace("ë", "e").replace("é", "e"))
     if w in RANGTELWOORDEN:
         return RANGTELWOORDEN[w]
     if w.endswith("ste") and len(w) > 5:     # achtste, twintigste, eenentwintigste
@@ -224,7 +224,7 @@ def woord_naar_getal(w: str) -> int | None:
 def jaar_in_woorden(w: str) -> int | None:
     """'negentienhonderdvijfentachtig' -> 1985, 'tweeduizend twee' -> 2002,
     'negentienhonderd en tachtig' -> 1980."""
-    w = w.lower().replace(" ", "")
+    w = re.sub(r"\s+", "", w.lower())
     for basis, waarde in (("negentienhonderd", 1900), ("achttienhonderd", 1800), ("tweeduizend", 2000)):
         if w.startswith(basis):
             rest = w[len(basis):]
@@ -239,9 +239,10 @@ def jaar_in_woorden(w: str) -> int | None:
 
 # "twaalf maart negentienhonderdvijfentachtig", "de tiende februari negentienhonderd en tachtig",
 # "negen en twintig mei tweeduizend twee"
+# Woorden mogen over regels verspreid staan ("negentienhonderd\ntweeënzeventig"), zoals in akten.
 DATUM_WOORD_RE = re.compile(
-    rf"(?i)(?<![\w])(?:de[ ]+)?([a-zëé]+(?:[ ]en[ ][a-zëé]+)?)[ ]+({_MAAND_ALT})[ ]+"
-    rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zëé]*(?:[ ][a-zëé]+){{0,3}})"
+    rf"(?i)(?<![\w])(?:de\s+)?([a-zëé]+(?:\s+en\s+[a-zëé]+)?)\s+({_MAAND_ALT})\s+"
+    rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zëé]*(?:\s+[a-zëé]+){{0,3}})"
 )
 GEBOORTE_RE = re.compile(
     r"(?i)(geb(?:oren|oorte\w*)?\b|geb\.|date of birth|birth|d\.o\.b\.?|\bdob\b"
@@ -256,17 +257,30 @@ STRAAT_SUFFIX = (
     "berg|bosch|dal|gaarde|tuin|hout|kwartier|vliet|wetering|vaart|stede|hoeve|"
     "kanaal|promenade|passage|galerij|steenweg|heuvel|lindeboom|zoom|meent"
 )
-HUISNUMMER = r"[ ]+\d{1,5}(?:[ ]?-?[ ]?(?:[A-Za-z]{1,3}|hs|bis)(?![\w]))?(?:[ ]?-[ ]?\d{1,4})?(?![\w])"
+# Toevoeging: vast aan het nummer ("12a", "12-hs") of een losse hoofdletter ("12 A"); niet "12 te".
+HUISNUMMER = (r"[ ]+(?:(?i:nummer|nr\.?|no\.?)[ ]+)?\d{1,5}"
+              r"(?:-?(?:[A-Za-z]{1,2}|hs|bis)(?![\w])|[ ]-?[ ]?(?:[A-Z]{1,2}|hs|bis)(?![\w]))?"
+              r"(?:[ ]?-[ ]?\d{1,4})?(?![\w])")
 STRAAT_RE = re.compile(
     rf"{NW}(?:(?:[{HOOFD}][\w'.-]*|{TV_I})[ ]){{0,3}}[{HOOFD}][{KLEIN}'-]*(?:{STRAAT_SUFFIX}){HUISNUMMER}"
     rf"|{NW}(?:Laan|Weg|Plein|Kade|Dijk|Singel|Gracht|Straat|Dreef|Hof|Markt|Oude|Nieuwe)"
     rf"(?:[ ](?:van|der|de|den|het|ten|ter|op|aan|'t))*[ ][{HOOFD}][\w'-]*{HUISNUMMER}"
+    # in hoofdletters: "KERKSTRAAT 12"
+    rf"|{NW}(?:[{HOOFD}'.-]+[ ]){{0,3}}[{HOOFD}'-]*(?:{STRAAT_SUFFIX.upper()}){HUISNUMMER}"
 )
+# Een straatnaam zonder herkenbaar achtervoegsel ("Vredenburg 4", "Achter Clarenburg 2"):
+# alleen als adres herkend als de context het zegt (naast een postcode, na "wonende te").
+STRAAT_ALGEMEEN = rf"(?:(?:[{HOOFD}][\w'.-]*|{TV_I})[ ]){{0,4}}[{HOOFD}][\w'.-]*{HUISNUMMER}"
 STAD_TWEEDELIG = r"(?:Den|De|Sint|St\.|Nieuw|Oud|Hoog|Laag|Groot|Klein|Bergen|Hendrik|Ter|Ten)"
-POSTCODE_RE = re.compile(
+POSTCODE = (
     rf"{NW}[1-9]\d{{3}}[ ]?(?!SA|SD|SS)[A-Z]{{2}}{NA}"
     rf"(?:[ ,]{{1,3}}(?:'[sS]-|'[tT][ ])?(?:{STAD_TWEEDELIG}[ ])?[{HOOFD}][\w'-]+"
     rf"(?:[ ](?:aan|a/d|op|bij|in)[ ](?:den[ ]|de[ ])?[{HOOFD}][\w'-]+)?)?"
+)
+POSTCODE_RE = re.compile(POSTCODE)
+# "3512 JK Utrecht, Vredenburg 4" en "Vredenburg 4, 3512 JK Utrecht" als één adres.
+ADRES_RONDOM_POSTCODE_RE = re.compile(
+    rf"{POSTCODE},\s*{STRAAT_ALGEMEEN}|{NW}{STRAAT_ALGEMEEN},\s*{POSTCODE}"
 )
 ADRES_LABEL_RE = re.compile(
     r"(?im)\b(?:woon)?(?:adres(?:gegevens)?|straat(?:naam)?|huisnummer|postcode|woonplaats|"
@@ -279,6 +293,12 @@ PLAATS = r"(?:'[sS]-|'[tT][ ])?[A-Z][\w'-]+(?:[ -](?:(?:aan|op|bij|den|de|a/d)[ 
 PLAATS_RE = re.compile(
     rf"(?i:\b(geboren|wonende|woonachtig|wonend|zonder vaste woon- of verblijfplaats))[ ]+"
     rf"(?i:te|in)[ ]+({PLAATS})"
+)
+WONEND = r"(?i:\b(?:wonende|woonachtig|wonend))"
+# "wonende te Utrecht, Vredenburg 4" en "wonende aan de Neude 11 (te Utrecht)"
+WOONADRES_RE = re.compile(
+    rf"{WONEND}[ ]+(?i:te|in)[ ]+{PLAATS},\s*({STRAAT_ALGEMEEN})"
+    rf"|{WONEND}[ ]+(?i:aan|op)[ ]+(?:(?i:de|het)[ ]+)?({STRAAT_ALGEMEEN})(?:\s+(?i:te)\s+({PLAATS}))?"
 )
 DOCUMENT_RE = re.compile(
     r"(?i)\b(?:paspoort|identiteitskaart|id-kaart|rijbewijs|legitimatiebewijs|verblijfsdocument|"
@@ -328,13 +348,13 @@ def datum_kandidaten(tekst: str) -> list[tuple[int, int, str, str]]:
     for m in DATUM_WOORD_RE.finditer(tekst):   # "twaalf maart negentienhonderdvijfentachtig"
         dag = woord_naar_getal(m[1])
         # Het jaar mag uit meer woorden bestaan; woorden erna die er niet bij horen eraf halen.
-        woorden = m[3].split(" ")
+        woorden = list(re.finditer(r"\S+", m[3]))
         jaar = None
         while woorden and jaar is None:
-            jaar = jaar_in_woorden(" ".join(woorden))
+            jaar = jaar_in_woorden(" ".join(w[0] for w in woorden))
             if jaar is None:
                 woorden.pop()
-        eind = m.start(3) + len(" ".join(woorden))
+        eind = m.start(3) + (woorden[-1].end() if woorden else 0)
         if dag and dag <= 31 and jaar:
             mnd = MAANDEN[m[2].lower()]
             kandidaten.append((m.start(), eind, str(jaar), f"{jaar}-{mnd:02d}-{dag:02d}"))
@@ -439,6 +459,12 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
     for m in PLAATS_RE.finditer(tekst):
         soort = "geboorteplaats" if m[1].lower() == "geboren" else "woonplaats"
         vondsten.append(Vondst(m.start(2), m.end(2), "adres", f"[{soort}]", 3))
+    for m in ADRES_RONDOM_POSTCODE_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(), m.end(), "adres", "[adres]", 4))
+    for m in WOONADRES_RE.finditer(tekst):
+        for groep, label in ((1, "[adres]"), (2, "[adres]"), (3, "[woonplaats]")):
+            if m[groep]:
+                vondsten.append(Vondst(m.start(groep), m.end(groep), "adres", label, 4))
     for m in DOCUMENT_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 8))
     for m in KADASTER_RE.finditer(tekst):
@@ -1333,8 +1359,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("invoer", nargs="*", type=Path,
                     help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt), CAMT.053 (.xml/.zip) "
                          "of map(pen) daarmee")
-    ap.add_argument("-o", "--uitvoer", type=Path, default=Path("geanonimiseerd"),
-                    help="uitvoermap (standaard: ./geanonimiseerd)")
+    ap.add_argument("-o", "--uitvoer", type=Path, default=None,
+                    help="uitvoermap (standaard: een map 'geanonimiseerd' naast elk bronbestand)")
     ap.add_argument("--namen", type=Path,
                     help="tekstbestand met namen die zeker vervangen moeten worden (één per regel); "
                          "met '= roepnaam' erachter wordt die roepnaam het label")
@@ -1402,7 +1428,7 @@ def main(argv: list[str] | None = None) -> int:
         if pad.is_dir():
             # .txt alleen als het bestand expliciet wordt genoemd (bijv. namen.txt niet meenemen)
             bestanden += sorted(p for p in pad.rglob("*") if p.suffix.lower() in ONDERSTEUND - {".txt"}
-                                and not p.stem.endswith("_anoniem"))
+                                and "_anoniem" not in p.stem and "geanonimiseerd" not in p.parts)
         elif pad.suffix.lower() in ONDERSTEUND and pad.exists():
             bestanden.append(pad)
         else:
@@ -1438,7 +1464,8 @@ def main(argv: list[str] | None = None) -> int:
     anon = bank = camt = None
     fouten = 0
     for i, pad in enumerate(bestanden, 1):
-        sleutel = args.uitvoer / f"sleutel_{i}.json" if args.sleutel else None
+        uitmap = args.uitvoer or pad.parent / "geanonimiseerd"
+        sleutel = uitmap / f"sleutel_{i}.json" if args.sleutel else None
         try:
             if pad.suffix.lower() == ".pdf":
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
@@ -1446,20 +1473,20 @@ def main(argv: list[str] | None = None) -> int:
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
                                               familiegegevens=gegevens, sleutel=sleutel,
                                               rapport=not args.geen_rapport, ocr=not args.geen_ocr)
-                r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
+                r = anon.verwerk(pad, uitmap, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
                 camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
                                                   familiegegevens=gegevens, sleutel=sleutel,
                                                   rapport=not args.geen_rapport)
-                r = camt.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
+                r = camt.verwerk(pad, uitmap, sleutelbestand=sleutel)
             else:
                 bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
                                                   familiegegevens=gegevens, sleutel=sleutel,
                                                   rapport=not args.geen_rapport)
-                r = bank.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
+                r = bank.verwerk(pad, uitmap, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)
             fouten += 1

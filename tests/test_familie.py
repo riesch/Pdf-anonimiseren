@@ -63,7 +63,7 @@ def test_bsn_en_adres_krijgen_naam(lijst):
     uit = _anon(pad, sleutel).anonimiseer_tekst(
         "Richard Jansen, BSN 111.222.333, woont op Kerkstr. 12 A, 3512 JK Utrecht.\n"
         "Datum: 12-03-1985. Ander BSN: 123456782. Buurman woont op Kerkstraat 14.")
-    assert uit == ("Richard, BSN [BSN Richard], woont op [adres Richard], [adres Richard].\n"
+    assert uit == ("Richard, BSN [BSN Richard], woont op [adres Richard].\n"
                    "Datum: 1985. Ander BSN: [BSN]. Buurman woont op [adres].")
 
 

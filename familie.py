@@ -227,7 +227,7 @@ class Familiegegevens:
 
 def naam_sleutel(regel: str) -> str:
     """Dezelfde persoon, ook als de roepnaam er de ene keer wel en de andere keer niet bij staat."""
-    return " ".join(regel.split("=")[0].lower().split())
+    return " ".join(regel.split("=")[0].split("|")[0].lower().split())
 
 
 def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:

@@ -82,7 +82,7 @@ def verboden_woorden(personen: list[an.Persoon], behoud: set[str]) -> list[tuple
     for p in personen:
         if not p.opgegeven or not p.label:
             continue
-        for w in (p.achternaam or "").split():
+        for w in " ".join(p.achternamen).replace("-", " ").split():
             if not an._tv(w):
                 woorden.setdefault(w, "achternaam van familielid")
         for w in p.alle_voornamen:

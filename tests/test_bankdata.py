@@ -71,3 +71,19 @@ def test_familie_modus_bank(tmp_path):
 def test_csv_met_bom_voor_excel(tmp_path):
     r, _ = _verwerk(tmp_path, "x.csv", ING)
     assert r.tekst.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_bedrijven_en_personen_met_lastige_namen():
+    assert not bd.is_persoon("Dirk van den Broek") and not bd.is_persoon("Centraal Beheer")
+    assert bd.is_persoon("Dirk de Vries") and bd.is_persoon("Da Silva Santos")   # personen blijven personen
+    assert bd.is_persoon("J Zeeman") and bd.is_persoon("Leen Bakker") and not bd.is_persoon("ZEEMAN 1234 UTRECHT")
+
+
+def test_toon_tegenpartijen(tmp_path, capsys):
+    bron = tmp_path / "x.csv"
+    bron.write_text(ING, encoding="utf-8")
+    import anonimiseer as an
+    an.main([str(bron), "--toon-tegenpartijen", "--alle-namen", "--niet-vragen"])
+    uit = capsys.readouterr().out
+    assert "Als privépersoon behandeld" in uit and "HR J JANSEN EO" in uit
+    assert "HR J JANSEN" not in (tmp_path / "geanonimiseerd" / "controle" / "x_controle.md").read_text(encoding="utf-8")

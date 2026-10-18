@@ -113,3 +113,15 @@ def test_ingevoegde_scan_met_zonder_afbeeldingen_geen_lek(tmp_path):
     _brief_met_scan(bron)
     r = an.Anonimiseerder(gebruik_ner=False, ocr=False, zonder_afbeeldingen=True).verwerk(bron, tmp_path / "uit")
     assert not r.gemarkeerd
+
+
+def test_tekst_in_tabelvak_buiten_cellen_blijft_bewaard():
+    # Eén regel "A B noot" in een tabelvak; alleen "A" en "B" vallen in een cel.
+    tekst = "A B noot\n"
+    vakken = [(pymupdf.Rect(10 * i, 0, 10 * i + 8, 10), 0) for i in range(len(tekst) - 1)] + [None]
+    tabel = an.Tabel(pymupdf.Rect(0, 0, 100, 10),
+                     [[pymupdf.Rect(0, 0, 9, 10), pymupdf.Rect(19, 0, 29, 10)],
+                      [None, None]])
+    pt = an.PaginaTekst(tekst, vakken, tabellen=[tabel])
+    md = an.pagina_markdown(pt, [])
+    assert "| A | B |" in md and "noot" in md

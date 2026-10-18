@@ -54,7 +54,6 @@ import pymupdf as fitz  # PyMuPDF
 HOOFD = "A-ZÀ-ÖØ-Þ"
 KLEIN = "a-zß-öø-ÿ"
 # Eén naamdeel: "Jan", "Anne-Marie", "Bakker-Smit", "JANSEN", "O'Brien"
-CAP = rf"[{HOOFD}](?:[{KLEIN}'’]+|[{HOOFD}'’]+)(?:-[{HOOFD}][{KLEIN}{HOOFD}'’]+)*"
 INITIALEN = rf"(?:[{HOOFD}]\.[ ]?){{1,5}}"
 TUSSENVOEGSELS = [
     "van", "de", "der", "den", "het", "ten", "ter", "te", "'t", "von", "zu",
@@ -62,6 +61,9 @@ TUSSENVOEGSELS = [
 ]
 TV = "(?:" + "|".join(re.escape(t) for t in sorted(TUSSENVOEGSELS, key=len, reverse=True)) + ")"
 TV_I = rf"(?i:{TV})"
+# Eén naamdeel; ook dubbele achternamen: "Bakker-Smit", "Jansen-de Vries", "Smit-van der Berg"
+CAP = (rf"[{HOOFD}](?:[{KLEIN}'’]+|[{HOOFD}'’]+)"
+       rf"(?:-(?:{TV_I}[ ])*[{HOOFD}][{KLEIN}{HOOFD}'’]+|-{TV_I}(?:[ ]{TV_I})*[ ][{HOOFD}][{KLEIN}{HOOFD}'’]+)*")
 # Notariële akten noemen alle voornamen voluit, vaak vier of meer.
 NAAM = rf"(?:{INITIALEN}[ ]?|(?:{CAP}[ ]){{0,6}})(?:{TV_I}[ ]){{0,3}}{CAP}"
 NAAM_OMGEKEERD = rf"(?:{TV_I}[ ]){{0,3}}{CAP},[ ]?(?:{INITIALEN}|{CAP}(?:[ ]{CAP}){{0,6}})(?:[ ]{TV}){{0,3}}"
@@ -527,6 +529,12 @@ class Persoon:
     roepnaam: str | None = None
     opgegeven: bool = False           # staat in --namen/--familie
     teksten: list[str] = field(default_factory=list)   # hoe de naam in het document stond
+    extra_achternamen: list[str] = field(default_factory=list)   # bijv. getrouwde naam
+    lijstregels: set[int] = field(default_factory=set)   # regels in de namen-/familielijst
+
+    @property
+    def achternamen(self) -> list[str]:
+        return ([self.achternaam] if self.achternaam else []) + self.extra_achternamen
 
     @property
     def alle_voornamen(self) -> list[str]:
@@ -535,6 +543,23 @@ class Persoon:
 
 def _norm(s: str | None) -> str:
     return re.sub(r"\s+", " ", s or "").strip().lower()
+
+
+def _dubbele_achternamen(tokens: list[str]) -> list[str]:
+    """['Anna', 'Jansen-de', 'Vries'] -> ['Anna', 'Jansen-de Vries']."""
+    uit, i = [], 0
+    while i < len(tokens):
+        t = tokens[i]
+        if "-" in t and _tv(t.rsplit("-", 1)[1]) and i + 1 < len(tokens):
+            j = i + 1
+            while j < len(tokens) - 1 and _tv(tokens[j]):
+                j += 1
+            uit.append(" ".join(tokens[i:j + 1]))
+            i = j + 1
+        else:
+            uit.append(t)
+            i += 1
+    return uit
 
 
 def ontleed_naam(tekst: str, positie=(0, 0), hint=None) -> Vermelding | None:
@@ -557,6 +582,7 @@ def ontleed_naam(tekst: str, positie=(0, 0), hint=None) -> Vermelding | None:
         tokens.pop(0)
     if not tokens and not achter:
         return None
+    tokens = _dubbele_achternamen(tokens)
     kern = " ".join(tokens) + (f", {achter}" if achter else "")
     if achter is None:
         if len(tokens) == 1:
@@ -636,11 +662,13 @@ class NaamHerkenner:
                 uit.append(v)
 
         for i, regel in enumerate(self.extra_namen):
+            # "Anna de Vries | Anna Jansen-de Vries = Anna": twee namen van dezelfde persoon
             naam, _, roepnaam = regel.partition("=")
-            v = ontleed_naam(naam, (-1, i))
-            if v and self._toegestaan(v):
-                v.roepnaam = roepnaam.strip() or None
-                uit.append(v)
+            for vorm in naam.split("|"):
+                v = ontleed_naam(vorm, (-1, i))
+                if v and self._toegestaan(v):
+                    v.roepnaam = roepnaam.strip() or None
+                    uit.append(v)
         for p, tekst in enumerate(paginas):
             for m in TITEL_NAAM_RE.finditer(tekst):
                 # Na een titel is één woord een achternaam ("Dhr. Jansen").
@@ -676,6 +704,7 @@ def koppel_personen(vermeldingen: list[Vermelding],
     def bijwerken(p: Persoon, v: Vermelding):
         if v.positie[0] == -1:
             p.opgegeven = True
+            p.lijstregels.add(v.positie[1])
         elif v.tekst not in p.teksten:
             p.teksten.append(v.tekst)
         p.positie = min(p.positie, v.positie)
@@ -745,6 +774,23 @@ def koppel_personen(vermeldingen: list[Vermelding],
         p = Persoon(voornamen=[woord], positie=v.positie, teksten=[woord])
         personen.append(p)
 
+    # Namen op dezelfde lijstregel ("Anna de Vries | Anna Jansen-de Vries") zijn één persoon.
+    for p in list(personen):
+        for q in [q for q in personen if q is not p and q.lijstregels & p.lijstregels]:
+            if q not in personen or p not in personen:
+                continue
+            for vn in q.voornamen:
+                if vn.lower() not in (x.lower() for x in p.voornamen):
+                    p.voornamen.append(vn)
+            p.initialen = max(p.initialen, q.initialen, key=len)
+            p.roepnaam = p.roepnaam or q.roepnaam
+            p.extra_achternamen += [a for a in q.achternamen
+                                    if _norm(a) not in (_norm(b) for b in p.achternamen)]
+            p.positie = min(p.positie, q.positie)
+            p.teksten += [t for t in q.teksten if t not in p.teksten]
+            p.lijstregels |= q.lijstregels
+            personen.remove(q)
+
     return personen, ken_labels_toe(personen, alleen_opgegeven)
 
 
@@ -757,7 +803,7 @@ def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> d
     zonder = 0
     # Wie dezelfde achternaam heeft als een opgegeven familielid, hoort er
     # waarschijnlijk ook bij; anders zou "Piet Jansen" de familienaam verraden.
-    familienamen = {_norm(p.achternaam) for p in personen if p.opgegeven and p.achternaam}
+    familienamen = {_norm(a) for p in personen if p.opgegeven for a in p.achternamen}
     for p in sorted(personen, key=lambda p: p.positie):
         if alleen_opgegeven and not p.opgegeven and _norm(p.achternaam) not in familienamen:
             p.label = None
@@ -872,8 +918,8 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
         inits = {v[0].upper() for v in p.voornamen} | ({p.initialen[0]} if p.initialen else set())
         init_pat = (rf"(?:{'|'.join(sorted(inits))})(?:\.[ ]?|[ ])(?:[{HOOFD}](?:\.[ ]?|[ ])){{0,4}}"
                     if inits else None)
-        if p.achternaam:
-            ach = _achternaam_patroon(p.achternaam)
+        for achternaam in p.achternamen:   # ook een tweede (bijv. getrouwde) achternaam
+            ach = _achternaam_patroon(achternaam)
             # Tussenvoegsel aan het begin mag ook met hoofdletter ("Van den Berg").
             voor_deel = []
             if vn_alt:
@@ -883,7 +929,7 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
             if voor_deel:
                 patronen.append((rf"(?:{'|'.join(voor_deel)})[ ]*{ach}", p.label))
                 patronen.append((rf"{ach},[ ]?(?:{'|'.join(voor_deel)})(?:[ ]{TV_I}){{0,3}}", p.label))
-            fam = families.get(_norm(p.achternaam))
+            fam = families.get(_norm(achternaam))
             patronen.append((ach, fam or p.label))
         for vn in p.alle_voornamen:
             # Een losse voornaam die bij meerdere personen hoort, blijft gewoon staan.
@@ -1078,23 +1124,36 @@ def pagina_markdown(pt: PaginaTekst, vondsten: list[Vondst]) -> str:
     if not pt.tabellen:
         return "".join(teken(i) for i in range(len(pt.tekst)))
 
+    gebruikt: set[int] = set()
+
     def cel(rect: fitz.Rect | None) -> str:
         if rect is None:
             return ""
         delen, vorige = [], None
         for i in cel_tekens(pt, rect):
+            gebruikt.add(i)
             if vorige is not None and pt.vakken[i][1] != vorige:
                 delen.append(" ")
             vorige = pt.vakken[i][1]
             delen.append(teken(i))
         return re.sub(r"\s+", " ", "".join(delen)).strip().replace("|", "\\|")
 
-    def tabel_md(tabel: Tabel) -> str:
+    def tabel_md(t: int) -> str:
+        tabel = pt.tabellen[t]
         breedte = max(len(r) for r in tabel.rijen)
         rijen = [[cel(c) for c in r] + [""] * (breedte - len(r)) for r in tabel.rijen]
         regels = ["| " + " | ".join(rijen[0]) + " |", "|" + "---|" * breedte]
         regels += ["| " + " | ".join(r) + " |" for r in rijen[1:]]
-        return "\n".join(regels)
+        # Tekst binnen het tabelvak maar buiten de cellen (bijv. een voetnoot) niet kwijtraken.
+        rest, vorige = [], None
+        for i, vak in enumerate(pt.vakken):
+            if vak and regel_tabel.get(vak[1]) == t and i not in gebruikt:
+                if vorige is not None and vak[1] != vorige:
+                    rest.append("\n")
+                vorige = vak[1]
+                rest.append(teken(i))
+        overig = re.sub(r"[ \t]+", " ", "".join(rest)).strip()
+        return "\n".join(regels) + (f"\n\n{overig}" if overig else "")
 
     # Welke tekstregels vallen in een tabel?
     regel_vak: dict[int, fitz.Rect] = {}
@@ -1116,7 +1175,7 @@ def pagina_markdown(pt: PaginaTekst, vondsten: list[Vondst]) -> str:
         if in_tabel:
             if t not in gehad:
                 gehad.add(t)
-                uit.append("\n" + tabel_md(pt.tabellen[t]) + "\n\n")
+                uit.append("\n" + tabel_md(t) + "\n\n")
             continue
         uit.append(teken(i))
     return "".join(uit)
@@ -1212,6 +1271,7 @@ class Resultaat:
     ocr: list[int] = field(default_factory=list)   # pagina's gelezen met tekstherkenning
     tabellen: int = 0
     afbeeldingen: list[tuple[int, float]] = field(default_factory=list)   # (pagina, aandeel) niet gelezen
+    als_persoon: dict[str, str] = field(default_factory=dict)   # bankdata: tegenpartij -> label
 
 
 class Anonimiseerder:
@@ -1365,7 +1425,7 @@ def anonieme_bestandsnaam(stam: str, patronen, register: Register, familie=None)
 def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> None:
     sleutel = {
         "personen": {p.label: {"voornamen": p.voornamen, "roepnaam": p.roepnaam,
-                               "initialen": p.initialen, "achternaam": p.achternaam}
+                               "initialen": p.initialen, "achternamen": p.achternamen}
                      for p in personen if p.label is not None},
         "rekeningen en tegenpartijen": {label: waarde for (_, waarde), label in register.labels.items()},
     }
@@ -1453,6 +1513,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--alleen-pdf", action="store_true", help="maak alleen de geanonimiseerde PDF")
     ap.add_argument("--alle-tegenpartijen", action="store_true",
                     help="bankexports: vervang ook namen van bedrijven/winkels (standaard alleen privépersonen)")
+    ap.add_argument("--toon-tegenpartijen", action="store_true",
+                    help="bankdata: toon in de terminal welke tegenpartijen als privépersoon zijn "
+                         "behandeld (handig om winkels in behoud.txt te zetten)")
     ap.add_argument("--sleutel", action="store_true",
                     help="schrijf ook een sleutelbestand (pseudoniem -> echte gegevens) in "
                          "~/.pdf-anonimiseren/sleutelbestanden/. Bevat persoonsgegevens: nooit delen!")
@@ -1575,6 +1638,15 @@ def main(argv: list[str] | None = None) -> int:
                   "voordat je het rapport hebt bekeken.")
         if verdacht:
             print(f"     ?  {verdacht} verdachte plek(ken) om even na te kijken")
+        if r.als_persoon:
+            if args.toon_tegenpartijen:
+                print("     Als privépersoon behandeld (alleen hier getoond; staat er een bedrijf tussen, "
+                      "zet het dan in behoud.txt):")
+                for naam, label in sorted(r.als_persoon.items()):
+                    print(f"        {naam}  ->  {label}")
+            else:
+                print(f"     {len(r.als_persoon)} tegenpartij(en) als privépersoon behandeld "
+                      "(bekijk ze met --toon-tegenpartijen)")
         if r.rapport:
             print(f"     controlerapport: {r.rapport}")
         if sleutel:

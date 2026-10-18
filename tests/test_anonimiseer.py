@@ -294,3 +294,19 @@ def test_sleutelbestand_buiten_uitvoermap(tmp_path, monkeypatch, capsys):
     assert list((tmp_path / "sleutels").glob("*.json"))
     assert not list((bron.parent / "geanonimiseerd").glob("*.json"))
     assert "ECHTE persoonsgegevens" in capsys.readouterr().out
+
+
+def test_dubbele_achternaam():
+    v = an.ontleed_naam("Anna Jansen-de Vries")
+    assert v.voornamen == ["Anna"] and v.achternaam == "Jansen-de Vries"
+    assert an.ontleed_naam("A. Smit-van der Berg").achternaam == "Smit-van der Berg"
+    uit = an.Anonimiseerder(gebruik_ner=False).anonimiseer_tekst("Naam: Anna Jansen-de Vries")
+    assert uit == "Naam: Anna"
+
+
+def test_geboortenaam_en_getrouwde_naam_een_persoon():
+    a = an.Anonimiseerder(namen=["Anna Wilhelmina de Vries | Anna Jansen-de Vries = Anna"],
+                          gebruik_ner=False, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Mevrouw A.W. Jansen-de Vries, geboren De Vries. Anna Jansen-de Vries tekent.")
+    assert uit == "Mevrouw Anna, geboren Anna. Anna tekent."
+    assert "(2)" not in uit

@@ -32,8 +32,30 @@ BANK_TITELS = {"hr", "heer", "dhr", "mw", "mvr", "mevr", "mevrouw", "mr", "fam",
 BANK_ACHTERVOEGSELS = {"eo", "e/o", "e.o.", "cj", "c.j.", "en/of", "en", "of"}
 SPLITS_RE = re.compile(r"(?i)\s+(?:en/of|en|of|&)\s+")
 
+# Bekende winkels, ketens en dienstverleners (naast de algemene woorden hieronder).
+# Geen namen die ook een persoonsnaam kunnen zijn (Dirk, Douglas, Da, Zeeman, Blokker, Leen
+# Bakker, Jan Linders, ...): dan zou zo'n persoon als bedrijf gezien worden en NIET
+# geanonimiseerd. Winkelbetalingen hebben meestal een filiaalnummer; cijfers wijzen al op
+# een bedrijf.
+BEDRIJFSNAMEN = [
+    "dirk van den broek", "vomar", "dekamarkt", "spar", "picnic", "nettorama", 
+    "ah to go", "gall & gall", "intertoys", "bruna", "primera", "xenos", "flying tiger",
+    "wibra", "big bazar", "c&a", "wehkamp", "zalando", "decathlon", "intersport", "karwei", "hornbach",
+    "hubo", "kwantum", "jysk", "mcdonalds", "mcdonald's", "burger king", "kfc", "starbucks",
+    "dominos", "domino's", "new york pizza", "la place", "vandebron", "oxxio", "energiedirect", "simpel",
+    "lebara", "lycamobile", "tele2", "t-mobile", "youfone", "hollandsnieuwe", "delta fiber", "caiway",
+    "transavia", "klm", "easyjet", "ryanair", "q-park", "yellowbrick", "parkmobile", "easypark", "tango",
+    "gulf", "texaco", "q8", "avia", "argos", "centraal beheer", "interpolis", "nationale-nederlanden",
+    "aegon", "asr", "ohra", "fbto", "zilveren kruis", "menzis", "vgz", "dsw", "ditzo", "unive", "univé",
+    "achmea", "allianz", "aon", "independer", "pathe", "pathé", "kinepolis", "efteling",
+    "rituals", "ici paris", "trekpleister", "holland & barrett", "marktplaats",
+    "temu", "aliexpress", "shein", "ebay", "etsy", "steam", "playstation", "xbox", "nintendo",
+    "belastingen", "toeslagen", "waternet", "rova", "hvc", "avri", "renewi", "sligro", "makro",
+]
 BEDRIJF_RE = re.compile(
-    r"(?i)(?<![\w])(?:b\.?v\.?|n\.?v\.?|v\.?o\.?f\.?|c\.v\.|s\.a\.|stichting|vereniging|gemeente|provincie|"
+    r"(?i)(?<![\w])(?:" + "|".join(re.escape(n) for n in sorted(BEDRIJFSNAMEN, key=len, reverse=True))
+    + r")(?![\w])|"
+    r"(?i:(?<![\w])(?:b\.?v\.?|n\.?v\.?|v\.?o\.?f\.?|c\.v\.|s\.a\.|stichting|vereniging|gemeente|provincie|"
     r"belastingdienst|waterschap|\w*bank|\w*verzeker\w*|\w*zorg\w*|holding|groep|group|international|"
     r"nederland|benelux|europe|ltd|llc|gmbh|inc|coop\w*|cjib|duo|svb|uwv|\w*energie|klantenservice|"
     r"service\w*|webshop|\w*shop|store|winkel|apotheek|\w*praktijk|kliniek|ziekenhuis|\w*school|"
@@ -41,11 +63,11 @@ BEDRIJF_RE = re.compile(
     r"tankstation|restaurant|cafe|café|hotel|bakkerij|slagerij|supermarkt|\w*markt|pay|payments|paypal|"
     r"adyen|mollie|tikkie|incasso|ccv|sumup|stripe|klarna|afterpay|ideal|kpn|ziggo|odido|vodafone|"
     r"eneco|vattenfall|essent|albert heijn|jumbo|lidl|aldi|plus|hema|kruidvat|etos|action|ikea|praxis|"
-    r"gamma|blokker|zeeman|primark|mediamarkt|coolblue|thuisbezorgd|uber|booking|airbnb|bol\.com|"
+    r"gamma|primark|mediamarkt|coolblue|thuisbezorgd|uber|booking|airbnb|bol\.com|"
     r"amazon|apple|google|microsoft|netflix|spotify|disney|videoland|ns|ov-chipkaart|shell|bp|esso|"
     r"tinq|total|vitens|evides|brabant water|dunea|pwn|anwb|nuon|greenchoice|budget energie|"
     r"woningcorporatie|wonen|woonstichting|makelaar\w*|notaris\w*|advoca\w*|accountant\w*|"
-    r"huisarts\w*|tandarts\w*|fysio\w*|kinderopvang|bso|ggd|politie|rdw)(?![\w])"
+    r"huisarts\w*|tandarts\w*|fysio\w*|kinderopvang|bso|ggd|politie|rdw)(?![\w]))"
     r"|\d|\*|\.(?:com|nl|eu|de|org)(?![\w])|&"
 )
 
@@ -308,6 +330,9 @@ class Sessie:
         self.personen: list[an.Persoon] = []
         self.patronen: list = []
         self.familie = None
+        # Tegenpartijen die als privépersoon zijn behandeld: alleen voor --toon-tegenpartijen
+        # in de terminal, nooit in een bestand.
+        self.als_persoon: dict[str, str] = {}
 
     def tel(self, soort: str) -> None:
         if soort != "behouden":
@@ -350,6 +375,7 @@ class Sessie:
             nieuw = self.naam_label(naam)
             if nieuw != naam:
                 self.tel("naam")
+                self.als_persoon[naam] = nieuw
             return nieuw
         if self.anon.alle_tegenpartijen:
             self.tel("tegenpartij")
@@ -390,6 +416,7 @@ class Sessie:
                                                   namen_verdacht=not self.anon.alleen_familie,
                                                   datums_verdacht=False)
         r = an.Resultaat(None, uitpad, self.tellingen, 0, [], lekken)
+        r.als_persoon = self.als_persoon
         return controle.afronden(r, invoer, uitpad.parent, bevindingen, self.anon.rapport)
 
 

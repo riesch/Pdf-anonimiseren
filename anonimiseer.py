@@ -300,9 +300,14 @@ WOONADRES_RE = re.compile(
     rf"{WONEND}[ ]+(?i:te|in)[ ]+{PLAATS},\s*({STRAAT_ALGEMEEN})"
     rf"|{WONEND}[ ]+(?i:aan|op)[ ]+(?:(?i:de|het)[ ]+)?({STRAAT_ALGEMEEN})(?:\s+(?i:te)\s+({PLAATS}))?"
 )
+# Na "paspoort", "identiteitskaart", "rijbewijs", "legitimatie..." het eerstvolgende
+# documentnummer, ook als het woord vastgeschreven is ("paspoortnummer"), "nummer"
+# ontbreekt of het nummer op de volgende regel staat (zoals vaak in akten).
 DOCUMENT_RE = re.compile(
-    r"(?i)\b(?:paspoort|identiteitskaart|id-kaart|rijbewijs|legitimatiebewijs|verblijfsdocument|"
-    r"verblijfsvergunning)\b[^\n.]{0,50}?\b(?:nummer|nr)\.?[: ]*((?=[A-Za-z]*\d)[A-Za-z0-9]{6,12})(?![\w])"
+    r"(?i:\b(?:paspoort|identiteitskaart|identiteitsbewijs|id-kaart|identiteitsdocument|rijbewijs|"
+    r"reisdocument|legitimatie|verblijfsdocument|verblijfsvergunning|vreemdelingendocument)\w*)"
+    r"[^\n]{0,80}?(?:\n[^\n]{0,60}?)?"
+    r"(?<![\w-])((?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Z]|\d{8,})[A-Za-z0-9]{6,12})(?![\w-])"
 )
 KADASTER_RE = re.compile(
     r"(?i)\bkadastraal[ ]+bekend[ ]+(?:als[ ]+)?((?:gemeente[ ]+)?[^\n]{0,60}?sectie[ ]+[A-Z]{1,2}[, ]+"

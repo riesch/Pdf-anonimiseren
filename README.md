@@ -118,7 +118,7 @@ achternaam in hoofdletters. Het script herkent dat en maakt er `Johannes` van. V
 |---|---|
 | geboren te Amersfoort | geboren te `[geboorteplaats]` |
 | wonende te Utrecht | wonende te `[woonplaats]` |
-| paspoort/identiteitskaart/rijbewijs nummer … | `[documentnummer]` |
+| paspoort/identiteitskaart/rijbewijs/reisdocument (nummer) … — ook "paspoortnummer", zonder "nummer" of op de volgende regel | `[documentnummer]` |
 | kadastraal bekend gemeente …, sectie …, nummer … | kadastraal bekend `[kadastrale aanduiding]` |
 
 **Roepnaam:** staat in de akte "Johannes" maar heet iemand eigenlijk Hans, zet dan in `namen.txt`:

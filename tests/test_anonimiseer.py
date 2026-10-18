@@ -196,3 +196,19 @@ def test_datum_in_woorden_over_twee_regels(anon):
 ])
 def test_adres_uit_context(anon, tekst, verwacht):
     assert anon.anonimiseer_tekst(tekst) == verwacht
+
+
+@pytest.mark.parametrize("tekst, verwacht", [
+    ("paspoortnummer: NW1234567", "paspoortnummer: [documentnummer]"),
+    ("Nederlands paspoort NW1234567, afgegeven", "Nederlands paspoort [documentnummer], afgegeven"),
+    ("zich legitimerende met paspoort\nnummer NW1234567, afgegeven",
+     "zich legitimerende met paspoort\nnummer [documentnummer], afgegeven"),
+    ("met zijn identiteitsbewijs (paspoort) nummer IR5K3PL92",
+     "met zijn identiteitsbewijs (paspoort) nummer [documentnummer]"),
+    ("reisdocument: NW1234567", "reisdocument: [documentnummer]"),
+    ("rijbewijs nummer 5123456789", "rijbewijs nummer [documentnummer]"),
+    ("paspoort, afgegeven op 12-03-2015, BSN 111222333", "paspoort, afgegeven op 12-03-2015, BSN [BSN]"),
+    ("paspoort verlopen in 2020", "paspoort verlopen in 2020"),
+])
+def test_documentnummers(anon, tekst, verwacht):
+    assert anon.anonimiseer_tekst(tekst) == verwacht

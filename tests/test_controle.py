@@ -87,3 +87,8 @@ def test_bestandsnaam_wordt_gecontroleerd(tmp_path):
     assert r.gemarkeerd and r.tekst.name == "jansen_2023_anoniem_CONTROLEREN.md"
     lek = [b for b in r.bevindingen if b.ernst == "lek"][0]
     assert lek.plek == "bestandsnaam" and lek.fragment == "»jansen«_2023"
+
+
+def test_los_paspoortnummer_is_verdacht():
+    bev = controle.controleer_uitvoer([("", "losse code NW1234567 hier")], [])
+    assert _soorten(bev, "verdacht") == ["lijkt op paspoort-/ID-kaartnummer"]

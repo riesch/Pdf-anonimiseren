@@ -37,6 +37,8 @@ GEWONE_WOORDEN = {
     "zwart", "blom", "haas", "kort", "lang", "hout", "laan", "brink", "kamp", "veld", "vink",
     "poort", "huis", "hof", "berger", "kaal", "schaap", "stam", "rijk", "goede", "groen",
 }
+# Nederlands paspoort-/ID-kaartnummer: 2 letters, 6 letters of cijfers, 1 cijfer (geen O).
+DOCUMENTNUMMER_RE = re.compile(r"(?<![\w-])[A-NP-Z]{2}(?=[A-NP-Z0-9]{6}\d)(?=[A-Z]*\d)[A-NP-Z0-9]{6}\d(?![\w-])")
 IBAN_ACHTIG_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}[ ]?[A-Z]{4}(?:[ ]?\d){6,}")
 
 
@@ -143,6 +145,8 @@ def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[an.Persoon],
                         verdacht("mogelijke naam", ent.start_char, ent.end_char)
         for m in NEGEN_CIJFERS_RE.finditer(tekst):
             verdacht("nummer van 9 cijfers (BSN?)", m.start(1), m.end(1))
+        for m in DOCUMENTNUMMER_RE.finditer(tekst):
+            verdacht("lijkt op paspoort-/ID-kaartnummer", m.start(), m.end())
         for m in IBAN_ACHTIG_RE.finditer(tekst):
             verdacht("lijkt op rekeningnummer", m.start(), m.end())
         if datums_verdacht:

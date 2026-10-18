@@ -1316,6 +1316,34 @@ class Anonimiseerder:
                           if not any(v.start < eind and start < v.eind for v in gekozen))
         return per_pagina, personen, patronen, register, blijft, familie
 
+    def verwerk_tekst(self, invoer: Path, uitmap: Path, sleutelbestand: Path | None = None) -> Resultaat:
+        """Word (.docx) of e-mail (.eml): lezen als tekst, anonimiseren, als Markdown wegschrijven."""
+        import controle
+        from tekstbestanden import lees_tekstbestand
+        delen = lees_tekstbestand(invoer)
+        kopjes, paginas = [k for k, _ in delen], [t for _, t in delen]
+        per_pagina, personen, patronen, register, blijft, familie = self.analyseer(paginas, invoer.name)
+        uitvoer = [pas_toe(t, vs) for t, vs in zip(paginas, per_pagina)]
+        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie)
+        uitmap.mkdir(parents=True, exist_ok=True)
+        tellingen: dict[str, int] = {}
+        for vs in per_pagina:
+            for v in vs:
+                if v.soort != "behouden":
+                    tellingen[v.soort] = tellingen.get(v.soort, 0) + 1
+        tekst_pad = uitmap / f"{stam}_anoniem.md"
+        tekst_pad.write_text(f"# {stam} (geanonimiseerd)\n\n" + "\n".join(
+            f"## {kop}\n\n{re.sub(chr(10) * 3 + '+', chr(10) * 2, t).strip()}\n"
+            for kop, t in zip(kopjes, uitvoer)), encoding="utf-8")
+        if sleutelbestand:
+            schrijf_sleutel(sleutelbestand, personen, register)
+        bevindingen = controle.controleer_uitvoer(
+            [("bestandsnaam", stam)] + list(zip(kopjes, uitvoer)), personen, familie, self.herkenner.behoud,
+            nlp=self.herkenner.nlp, namen_verdacht=not self.alleen_familie,
+            datums_verdacht=not self.alle_datums)
+        r = Resultaat(None, tekst_pad, tellingen, blijft, [], [])
+        return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
+
     def familie_index(self, personen: list[Persoon]):
         from familie import maak_index
         return maak_index(self.familiegegevens, self.sleutel, personen, self.herkenner.extra_namen)
@@ -1458,7 +1486,7 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
 
 
 SLEUTELMAP = Path.home() / ".pdf-anonimiseren" / "sleutelbestanden"
-ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt", ".xml", ".zip"}
+ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt", ".xml", ".zip", ".docx", ".eml"}
 
 
 def lees_lijst(pad: Path | None) -> list[str]:
@@ -1475,8 +1503,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Anonimiseer PDF's en bankexports (namen, BSN, adressen, geboortedata, "
                     "rekeningnummers) zodat ze aan een AI gegeven kunnen worden.")
     ap.add_argument("invoer", nargs="*", type=Path,
-                    help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt), CAMT.053 (.xml/.zip) "
-                         "of map(pen) daarmee")
+                    help="PDF, Word (.docx), e-mail (.eml), bankexport (.csv/.tsv/.txt), "
+                         "CAMT.053 (.xml/.zip), of map(pen) daarmee")
     ap.add_argument("-o", "--uitvoer", type=Path, default=None,
                     help="uitvoermap (standaard: een map 'geanonimiseerd' naast elk bronbestand)")
     ap.add_argument("--namen", type=Path,
@@ -1554,9 +1582,9 @@ def main(argv: list[str] | None = None) -> int:
         elif pad.suffix.lower() in ONDERSTEUND and pad.exists():
             bestanden.append(pad)
         else:
-            print(f"Overgeslagen (geen PDF/bankexport of bestaat niet): {pad}", file=sys.stderr)
+            print(f"Overgeslagen (geen ondersteund bestand of bestaat niet): {pad}", file=sys.stderr)
     if not bestanden:
-        print("Geen PDF-bestanden of bankexports gevonden.", file=sys.stderr)
+        print("Geen ondersteunde bestanden gevonden (PDF, Word, e-mail, bankexport, CAMT).", file=sys.stderr)
         return 1
 
     from bankdata import BankAnonimiseerder
@@ -1591,14 +1619,17 @@ def main(argv: list[str] | None = None) -> int:
         # (Niet verwarren met geheime_sleutel: die is voor de vingerafdrukken in familie.txt.)
         sleutel = (SLEUTELMAP / f"{datetime.now():%Y%m%d-%H%M%S}_{i}.json") if args.sleutel else None
         try:
-            if pad.suffix.lower() == ".pdf":
+            if pad.suffix.lower() in (".pdf", ".docx", ".eml"):
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
                                               alle_datums=args.alle_datums, alleen_familie=bool(familie),
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
                                               familiegegevens=gegevens, sleutel=geheime_sleutel,
                                               rapport=not args.geen_rapport, ocr=not args.geen_ocr)
-                r = anon.verwerk(pad, uitmap, maak_pdf=not args.alleen_tekst,
-                                 maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
+                if pad.suffix.lower() == ".pdf":
+                    r = anon.verwerk(pad, uitmap, maak_pdf=not args.alleen_tekst,
+                                     maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
+                else:
+                    r = anon.verwerk_tekst(pad, uitmap, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
                 camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,

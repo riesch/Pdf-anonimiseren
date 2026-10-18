@@ -27,114 +27,32 @@ Script om PDF-bestanden, bankexports en CAMT.053-afschriften te anonimiseren, zo
 
 Het Markdown-bestand bevat nooit afbeeldingen; `--zonder-afbeeldingen` is alleen nodig als je de PDF zelf deelt.
 
-### Alleen familie- en gezinsleden anonimiseren
+### Familie- en gezinsleden: familie.txt
 
-In grote bestanden met veel namen (akten, dossiers, notulen) is het vaak alleen zinvol om
-je eigen familie te anonimiseren. Kopieer `familie.voorbeeld.txt` naar `familie.txt` en vul
-je familie in:
+In grote bestanden met veel namen (akten, dossiers, notulen) is het vaak alleen zinvol om je
+eigen familie te anonimiseren. Zet je familieleden in `familie.txt`, in de map waar je het
+script start. Dan worden **alleen zij** vervangen (ook als `J. Jansen`, `Dhr. Jansen`, …); andere
+namen, zoals die van de notaris, blijven staan. BSN's, adressen, rekeningnummers enz. worden wel
+bij iedereen vervangen.
 
 ```
 Johannes Petrus Maria Jansen = Hans
+    telefoon: 06-12345678
+    werkgever: Voorbeeld Installatietechniek
 Anna Wilhelmina de Vries
 ```
 
-Staat `familie.txt` in de map waar je het script start, dan wordt hij automatisch gebruikt
-en worden **alleen deze personen** vervangen (ook als `J. Jansen`, `Dhr. Jansen`, enz.).
-Andere namen, zoals die van de notaris of een getuige, blijven staan. Iemand met dezelfde
-achternaam als een familielid wordt voor de zekerheid ook vervangen, anders zou de familienaam
-alsnog in het document staan. BSN's, adressen, rekeningnummers enz. worden wel bij iedereen
-vervangen. Met `--alle-namen` vervang je toch alle namen; met `--familie pad/naar/lijst.txt`
-gebruik je een lijst op een andere plek.
+Onder een naam kun je gegevens van die persoon zetten. Telefoon, e-mail, kenteken en eigen
+termen (werkgever, school, huisarts, …) typ je zelf; BSN, geboortedatum en adres voeg je toe met
+`python anonimiseer.py --familie-toevoegen`, dat ze als onleesbare vingerafdruk opslaat. In
+documenten wordt dat `Hans`, `[telefoon Hans]`, `[werkgever Hans]`, `[BSN Hans]`, `[adres Hans]`.
+Staat er van iemand alleen een initiaal, dan vraagt het script om de voornaam en onthoudt het
+antwoord.
 
-### BSN, adres en geboortedatum van familieleden
+**Alles over familie.txt, met voorbeelden, staat in [FAMILIE.md](FAMILIE.md).**
 
-Je kunt het script ook de BSN's, adressen en geboortedata van je familie laten kennen.
-Een BSN van Richard wordt dan `[BSN Richard]` en zijn adres `[adres Richard]`, zodat een AI
-nog weet van wie het gegeven is. Zijn geboortedatum wordt het geboortejaar, ook als er geen
-"geboren" bij staat (bijvoorbeeld in een tabel). Andere BSN's en adressen worden gewoon `[BSN]`
-en `[adres]`.
-
-Toevoegen gaat met vragen:
-
-```bash
-python anonimiseer.py --familie-toevoegen
-```
-
-```
-  Naam (alle voornamen en achternaam): Richard Pieter Jansen
-  Roepnaam (Enter = eerste voornaam):
-  BSN: …
-  Geboortedatum (bijv. 10-02-1980 of 10 februari 1980): …
-  Adres 1 – straat (Enter = klaar): …
-    Huisnummer + toevoeging (bijv. 12a): …
-    Postcode: …
-```
-
-In `familie.txt` komen de gegevens **niet leesbaar** te staan, alleen als vingerafdruk:
-
-```
-Richard Pieter Jansen
-    bsn: 86c23bd8b3a77d66cb34c0213cb5a9cf
-    adres: 3f306474947f1bed06c34e0ecab70aa5   # straat + huisnummer
-```
-
-Die vingerafdruk wordt gemaakt met een geheime sleutel. Wie alleen `familie.txt` in handen
-krijgt, kan er de BSN's en adressen niet uit terughalen.
-
-**Waar staat de sleutel?** Is `keyring` geïnstalleerd (`pip install -r requirements.txt` doet dat),
-dan in de sleutelhanger van je computer: *Sleutelhanger* op een Mac (onder de naam
-`pdf-anonimiseren`), *Referentiebeheer* op Windows, of de sleutelbos van Linux. Anders in het
-bestand `~/.pdf-anonimiseren/sleutel`.
-
-| Commando | Wat het doet |
-|---|---|
-| `--sleutel-naar-sleutelhanger` | zet een bestaand sleutelbestand in de sleutelhanger en wist het bestand |
-| `--sleutel-exporteren pad/naar/kopie` | maakt een reservekopie, bijv. op een usb-stick |
-| `--sleutel-naar-sleutelhanger pad/naar/kopie` | zet een reservekopie in de sleutelhanger, bijv. op een andere computer |
-
-Maak een reservekopie en bewaar die apart van `familie.txt`: zonder sleutel worden de
-opgeslagen gegevens niet meer herkend en moet je ze opnieuw toevoegen. Een adres wordt herkend als straat +
-huisnummer (ook afgekort, zoals `Kerkstr. 12 A`), als postcode + huisnummer of als postcode.
-
-### Telefoon, e-mail, kenteken en eigen termen van familieleden
-
-Deze gegevens zet je **leesbaar** onder de naam in `familie.txt`, ingesprongen met spaties.
-Je kunt ze zelf typen of laten vragen door `--familie-toevoegen`:
-
-```
-Richard Pieter Jansen
-    telefoon: 06-12345678
-    e-mail: richard@voorbeeld.nl
-    kenteken: 12-ABC-3
-    werkgever: Jansen Installatietechniek
-    huisarts: Praktijk De Linde
-```
-
-| In een document | Wordt |
-|---|---|
-| `06 1234 5678`, `+31 6 12345678` | `[telefoon Richard]` |
-| het e-mailadres (hoofdletters maken niet uit) | `[e-mail Richard]` |
-| `12-ABC-3` of `12ABC3` | `[kenteken Richard]` |
-| `Jansen Installatietechniek` | `[werkgever Richard]` |
-
-`telefoon`, `e-mail` en `kenteken` zijn vaste namen (`tel`, `mobiel` en `mail` mogen ook). Elke
-andere naam vóór de dubbele punt, zoals `werkgever`, `school` of `huisarts`, wordt het label van
-een eigen term. Telefoonnummers en e-mailadressen van anderen worden gewoon `[telefoon]` en
-`[e-mail]`. Wil je later iets aanvullen, voeg dan een regel toe onder de naam, of voer dezelfde
-naam nog eens in bij `--familie-toevoegen`: de gegevens worden samengevoegd.
-
-### Ontbrekende voornaam
-
-Staat van iemand alleen een initiaal in het document (`A. de Vries`), dan vraagt het script:
-
-```
-  ? Geen voornaam gevonden voor 'A. de Vries' (brief.pdf, pagina 2).
-    Voornaam (Enter = overslaan, - = niet meer vragen): Anna
-```
-
-Het antwoord wordt achteraan `familie.txt` (of je `--namen`-bestand) gezet, zodat het de
-volgende keer niet opnieuw gevraagd wordt. Overslaan geeft `Persoon 1`. Met `--niet-vragen`
-vraagt het script niets (handig bij grote mappen).
+Met `--alle-namen` vervang je toch alle namen; met `--familie pad/naar/lijst.txt` gebruik je een
+lijst op een andere plek.
 
 ### Notariële akten
 
@@ -319,6 +237,8 @@ zelf een andere plek):
 |---|---|
 | `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
 | `--familie-toevoegen` | met vragen een familielid toevoegen (BSN, geboortedatum, adres, telefoon, e-mail, kenteken, eigen termen) |
+| `--sleutel-exporteren pad` | reservekopie van de geheime sleutel (zie [FAMILIE.md](FAMILIE.md)) |
+| `--sleutel-naar-sleutelhanger [pad]` | sleutel(bestand of reservekopie) in de sleutelhanger zetten |
 | `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |

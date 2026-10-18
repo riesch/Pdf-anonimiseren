@@ -57,3 +57,12 @@ def test_abn_txt_zonder_kopregel(tmp_path):
     _, uit = _verwerk(tmp_path, "TXT240101.TXT", regel * 2)
     assert uit.startswith("*****6789\tEUR\t20240110")
     assert "/NAME/Persoon 1/" in uit and "/IBAN/**************4567/" in uit and "-750,00" in uit
+
+
+def test_familie_modus_bank(tmp_path):
+    inhoud = ING.replace('"A de Vries"', '"A de Vries"') + (
+        '"20240115";"K Visser";"NL91ABNA0417164300";"NL20INGB0001234567";"OV";"Bij";"5,00";'
+        '"Overschrijving";"Naam: K Visser Omschrijving: lunch";"404,56";""\n')
+    _, uit = _verwerk(tmp_path, "x.csv", inhoud, namen=["Jan Jansen"], alleen_familie=True)
+    assert "JANSEN" not in uit.upper() and uit.count('"Jan"') == 2
+    assert '"K Visser"' in uit and "Naam: K Visser" in uit   # geen familie: blijft staan

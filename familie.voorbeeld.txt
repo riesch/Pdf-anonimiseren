@@ -1,0 +1,13 @@
+# Familie- en gezinsleden die geanonimiseerd moeten worden (één per regel).
+# Kopieer dit bestand naar familie.txt en vul je eigen familie in.
+# Staat familie.txt in de map waar je het script start, dan worden ALLEEN deze
+# personen vervangen; andere namen blijven staan (zinvol bij grote bestanden).
+# Familie.txt staat in .gitignore en komt dus nooit in git.
+#
+# Schrijf de naam zoals hij in documenten staat, liefst met alle voornamen.
+# Met "= roepnaam" erachter wordt die roepnaam gebruikt in plaats van de eerste voornaam.
+# Ken je alleen de initialen, dan vraagt het script om de voornaam en zet het antwoord hier.
+
+Johannes Petrus Maria Jansen = Hans
+Anna Wilhelmina de Vries
+Piet Jansen

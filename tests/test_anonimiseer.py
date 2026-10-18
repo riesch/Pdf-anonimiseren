@@ -116,3 +116,46 @@ def test_pdf(tmp_path, anon):
         assert "Jansen" not in tekst and "111222333" not in tekst and "Kerkstraat" not in tekst
         assert not d.metadata["author"]
     assert "Naam: Jan" in r.tekst.read_text(encoding="utf-8")
+
+
+def test_familie_modus_vervangt_alleen_familie():
+    a = an.Anonimiseerder(namen=["Johannes Petrus Jansen = Hans"], gebruik_ner=False, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Naam: Johannes Petrus JANSEN\nNaam kind: Piet Jansen\n"
+                              "Naam getuige: Bert Bakker\nDe heer Bakker belde.")
+    # Piet heeft dezelfde achternaam en wordt dus ook vervangen; Bert Bakker niet.
+    assert uit == "Naam: Hans\nNaam kind: Piet\nNaam getuige: Bert Bakker\nDe heer Bakker belde."
+
+
+def test_vraagt_ontbrekende_voornaam_en_onthoudt(tmp_path):
+    lijst = tmp_path / "familie.txt"
+    lijst.write_text("A. de Vries\n", encoding="utf-8")
+    vragen = []
+    vrager = an.Vrager(invoer=lambda v: vragen.append(v) or "Anna", onthoud=lijst)
+    a = an.Anonimiseerder(namen=an.lees_lijst(lijst), gebruik_ner=False, alleen_familie=True, vrager=vrager)
+    assert a.anonimiseer_tekst("Mevrouw A. de Vries tekent.") == "Mevrouw Anna tekent."
+    assert len(vragen) == 1 and "A. de Vries" in vragen[0]
+    assert a.anonimiseer_tekst("Groet van A. de Vries") == "Groet van Anna"   # niet opnieuw gevraagd
+    assert len(vragen) == 1
+    assert lijst.read_text(encoding="utf-8").splitlines()[-1] == "A. de Vries = Anna"
+
+
+def test_overige_persoonsgegevens(anon):
+    uit = anon.anonimiseer_tekst(
+        "Overleden op 3 mei 2020. Kenteken 12-ABC-3, polisnummer AB-123456, patiëntnummer 7788991, "
+        "btw NL123456789B01, ip 192.168.1.20.")
+    assert uit == ("Overleden op 2020. Kenteken [kenteken], polisnummer [polisnummer], "
+                   "patiëntnummer [patiëntnummer], btw [btw-nummer], ip [ip-adres].")
+
+
+def test_afbeeldingen_verwijderen(tmp_path):
+    bron = tmp_path / "brief.pdf"
+    doc = pymupdf.open()
+    pagina = doc.new_page()
+    pagina.insert_text((40, 60), "Handtekening:", fontsize=11)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 20, 10), False)
+    pagina.insert_image(pymupdf.Rect(40, 70, 160, 130), pixmap=pix)
+    doc.save(bron)
+    r = an.Anonimiseerder(gebruik_ner=False, zonder_afbeeldingen=True).verwerk(bron, tmp_path / "uit")
+    assert r.tellingen["afbeelding"] == 1
+    with pymupdf.open(r.pdf) as d:
+        assert not d[0].get_images() and "Handtekening" in d[0].get_text()

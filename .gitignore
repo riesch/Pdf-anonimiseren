@@ -5,3 +5,4 @@ sleutel_*.json
 namen.txt
 __pycache__/
 .pytest_cache/
+familie.txt

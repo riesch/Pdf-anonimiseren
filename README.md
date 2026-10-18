@@ -17,6 +17,47 @@ Script om PDF-bestanden en bankexports te anonimiseren, zodat je ze veilig(er) a
 | Twee rekeningen met dezelfde laatste 4 cijfers | `**************4300` en `**************4300 (2)` |
 | E-mailadressen en telefoonnummers | `[e-mail]` / `[telefoon]` |
 
+| Overlijdensdatum | alleen het jaar |
+| Kenteken (`12-ABC-3`) | `[kenteken]` |
+| Klant-, polis-, dossier-, zaak-, patiënt-, personeels-, studentnummer | `[polisnummer]`, `[patiëntnummer]`, … |
+| Btw-nummer (`NL123456789B01`, bevatte vroeger het BSN) | `[btw-nummer]` |
+| IP-adres | `[ip-adres]` |
+| Foto's, handtekeningen, logo's (alleen met `--zonder-afbeeldingen`) | grijs vlak `[afbeelding verwijderd]` |
+
+Het Markdown-bestand bevat nooit afbeeldingen; `--zonder-afbeeldingen` is alleen nodig als je de PDF zelf deelt.
+
+### Alleen familie- en gezinsleden anonimiseren
+
+In grote bestanden met veel namen (akten, dossiers, notulen) is het vaak alleen zinvol om
+je eigen familie te anonimiseren. Kopieer `familie.voorbeeld.txt` naar `familie.txt` en vul
+je familie in:
+
+```
+Johannes Petrus Maria Jansen = Hans
+Anna Wilhelmina de Vries
+```
+
+Staat `familie.txt` in de map waar je het script start, dan wordt hij automatisch gebruikt
+en worden **alleen deze personen** vervangen (ook als `J. Jansen`, `Dhr. Jansen`, enz.).
+Andere namen, zoals die van de notaris of een getuige, blijven staan. Iemand met dezelfde
+achternaam als een familielid wordt voor de zekerheid ook vervangen, anders zou de familienaam
+alsnog in het document staan. BSN's, adressen, rekeningnummers enz. worden wel bij iedereen
+vervangen. Met `--alle-namen` vervang je toch alle namen; met `--familie pad/naar/lijst.txt`
+gebruik je een lijst op een andere plek.
+
+### Ontbrekende voornaam
+
+Staat van iemand alleen een initiaal in het document (`A. de Vries`), dan vraagt het script:
+
+```
+  ? Geen voornaam gevonden voor 'A. de Vries' (brief.pdf, pagina 2).
+    Voornaam (Enter = overslaan, - = niet meer vragen): Anna
+```
+
+Het antwoord wordt achteraan `familie.txt` (of je `--namen`-bestand) gezet, zodat het de
+volgende keer niet opnieuw gevraagd wordt. Overslaan geeft `Persoon 1`. Met `--niet-vragen`
+vraagt het script niets (handig bij grote mappen).
+
 ### Notariële akten
 
 Akten noemen alle voornamen voluit ("de heer Johannes Petrus Maria JANSEN"), vaak met de
@@ -94,6 +135,10 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | Optie | Betekenis |
 |---|---|
 | `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
+| `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
+| `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
+| `--niet-vragen` | niet om ontbrekende voornamen vragen |
+| `--zonder-afbeeldingen` | foto's, handtekeningen en logo's uit de PDF halen |
 | `--behoud behoud.txt` | woorden die juist **niet** vervangen mogen worden (bijv. een bedrijfsnaam die als naam wordt gezien) |
 | `--alle-datums` | vervang álle datums door het jaartal, niet alleen geboortedata |
 | `--geen-ner` | geen taalmodel gebruiken, alleen patronen en `--namen` |
@@ -124,7 +169,9 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
   titel/veld kunnen gemist worden. Gebruik `--namen` voor de namen die er echt toe doen.
 * Een datum zonder geboorte-aanduiding in de buurt (bijvoorbeeld in een tabel) blijft staan;
   het script meldt hoeveel. Gebruik dan `--alle-datums`.
-* In PDF's worden polisnummers, klantnummers of kentekens niet herkend.
+* Niet herkend: medische gegevens (diagnoses, medicijnen), inkomens- en salarisgegevens,
+  leeftijden ("43 jaar"), beroep/werkgever, gebruikersnamen en social-media-accounts, en
+  handgeschreven tekst. Lees daar zelf op na als dat in je documenten staat.
 * Bankexports: alleen CSV/TXT. MT940, CAMT.053 (XML) en Excel worden (nog) niet ondersteund.
 * Een map doorzoeken neemt `.pdf`, `.csv` en `.tsv` mee; een `.txt`-bestand alleen als je het
   zelf noemt (zodat `namen.txt` niet als bankexport wordt gezien).

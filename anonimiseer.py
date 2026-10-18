@@ -10,6 +10,11 @@ Wat er gebeurt:
   * rekeningnummers-> sterretjes behalve de laatste 4 tekens ("**************4300");
   * notariële akten: geboorteplaats, woonplaats, legitimatienummers en
                       kadastrale aanduidingen worden ook verwijderd;
+  * verder: kentekens, klant-/polis-/dossier-/patiëntnummers, btw-nummers,
+                      IP-adressen en overlijdensdata (-> jaar).
+
+Met een familie.txt (of --familie) worden alleen de namen van je familie- en
+gezinsleden vervangen; andere namen blijven staan.
   * e-mail/telefoon-> "[e-mail]" / "[telefoon]".
 
 Per invoerbestand worden een geanonimiseerde PDF (echte redactie: de originele
@@ -213,8 +218,10 @@ DATUM_WOORD_RE = re.compile(
     rf"((?:negentienhonderd|achttienhonderd|tweeduizend)[a-zë]*(?:[ ][a-zë]+)?)"
 )
 GEBOORTE_RE = re.compile(
-    r"(?i)(geb(?:oren|oorte\w*)?\b|geb\.|date of birth|birth|d\.o\.b\.?|\bdob\b)"
+    r"(?i)(geb(?:oren|oorte\w*)?\b|geb\.|date of birth|birth|d\.o\.b\.?|\bdob\b"
+    r"|overle\w*|overlijd\w*|sterf\w*|†)"
 )
+OVERLIJDEN_RE = re.compile(r"(?i)overl|sterf|†")
 
 STRAAT_SUFFIX = (
     "straat|straatweg|laan|weg|plein|gracht|kade|singel|dijk|dreef|hof|pad|steeg|baan|"
@@ -257,6 +264,20 @@ KADASTER_RE = re.compile(
 )
 
 
+KENTEKEN_RE = re.compile(
+    r"(?<![\w-])(?:[A-Z]{2}-\d{2}-[A-Z]{2}|\d{2}-[A-Z]{2}-\d{2}|\d{2}-\d{2}-[A-Z]{2}|[A-Z]{2}-\d{2}-\d{2}"
+    r"|[A-Z]{2}-[A-Z]{2}-\d{2}|\d{2}-[A-Z]{2}-[A-Z]{2}|\d{2}-[A-Z]{3}-\d|\d-[A-Z]{3}-\d{2}|[A-Z]{2}-\d{3}-[A-Z]"
+    r"|[A-Z]-\d{3}-[A-Z]{2}|[A-Z]{3}-\d{2}-[A-Z]|\d-[A-Z]{2}-\d{3}|[A-Z]-\d{2}-[A-Z]{3}|\d{3}-[A-Z]{2}-\d)(?![\w-])"
+)
+NUMMER_RE = re.compile(
+    r"(?i)\b(klant|contract|polis|dossier|zaak|patiënt|patient|cliënt|client|personeels|medewerker|"
+    r"student|leerling|lid|lidmaatschaps|relatie|debiteur|verzekerden|abonnee|abonnements)"
+    r"[ -]?(?:nummer|nr)\b\.?[ :]*((?=[A-Z0-9./-]*\d)[A-Z0-9](?:[A-Z0-9./-]{2,}[A-Z0-9]))"
+)
+BTW_RE = re.compile(r"(?<![\w])NL[ ]?\d{9}[ ]?B[ ]?\d{2}(?![\w])")
+IP_RE = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d]|\.\d)")
+
+
 def _jaar(jj: str) -> str:
     if len(jj) == 4:
         return jj
@@ -294,8 +315,10 @@ def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
         if start < vorige_eind:
             continue
         venster = tekst[max(vorige_eind, start - 60):start]
-        if GEBOORTE_RE.search(venster):
-            vondsten.append(Vondst(start, eind, "geboortedatum", jaar, 5))
+        aanduiding = list(GEBOORTE_RE.finditer(venster))
+        if aanduiding:
+            soort = "overlijdensdatum" if OVERLIJDEN_RE.match(aanduiding[-1][0]) else "geboortedatum"
+            vondsten.append(Vondst(start, eind, soort, jaar, 5))
         elif alle_datums:
             vondsten.append(Vondst(start, eind, "datum", jaar, 5))
         else:
@@ -380,6 +403,15 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
         vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 8))
     for m in KADASTER_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(1), m.end(1), "adres", "[kadastrale aanduiding]", 4))
+    for m in KENTEKEN_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(), m.end(), "kenteken", "[kenteken]", 6))
+    for m in NUMMER_RE.finditer(tekst):
+        soort = m[1].lower().replace("patient", "patiënt").replace("client", "cliënt")
+        vondsten.append(Vondst(m.start(2), m.end(2), "nummer", f"[{soort}nummer]", 8))
+    for m in BTW_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(), m.end(), "btw-nummer", "[btw-nummer]", 9))
+    for m in IP_RE.finditer(tekst):
+        vondsten.append(Vondst(m.start(), m.end(), "ip-adres", "[ip-adres]", 6))
 
     data, blijft = vind_data(tekst, alle_datums)
     vondsten.extend(data)
@@ -407,8 +439,10 @@ class Persoon:
     initialen: str = ""
     achternaam: str | None = None
     positie: tuple[int, int] = (10**9, 0)
-    label: str = ""
+    label: str | None = ""            # None = niet vervangen (geen familielid)
     roepnaam: str | None = None
+    opgegeven: bool = False           # staat in --namen/--familie
+    teksten: list[str] = field(default_factory=list)   # hoe de naam in het document stond
 
     @property
     def alle_voornamen(self) -> list[str]:
@@ -539,11 +573,13 @@ class NaamHerkenner:
         return uit
 
 
-def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict[str, str]]:
+def koppel_personen(vermeldingen: list[Vermelding],
+                    alleen_opgegeven: bool = False) -> tuple[list[Persoon], dict[str, str]]:
     """Voeg vermeldingen samen tot personen en ken labels toe.
 
     Geeft de personen terug plus een tabel achternaam -> familielabel voor
-    achternamen die bij meerdere personen horen.
+    achternamen die bij meerdere personen horen. Met alleen_opgegeven krijgen
+    alleen personen uit de namen-/familielijst een label; de rest blijft staan.
     """
     personen: list[Persoon] = []
 
@@ -551,6 +587,10 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
         return [p for p in personen if _norm(p.achternaam) == _norm(a)]
 
     def bijwerken(p: Persoon, v: Vermelding):
+        if v.positie[0] == -1:
+            p.opgegeven = True
+        elif v.tekst not in p.teksten:
+            p.teksten.append(v.tekst)
         p.positie = min(p.positie, v.positie)
         for vn in v.voornamen:
             if vn.lower() not in (x.lower() for x in p.voornamen):
@@ -615,14 +655,26 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
             bekend[0].positie = min(bekend[0].positie, v.positie)
         if bekend:
             continue
-        p = Persoon(voornamen=[woord], positie=v.positie)
+        p = Persoon(voornamen=[woord], positie=v.positie, teksten=[woord])
         personen.append(p)
 
-    # Label = roepnaam of eerste voornaam; zonder bekende voornaam "Persoon N".
-    # Twee verschillende personen met dezelfde voornaam: "Jan" en "Jan (2)".
+    return personen, ken_labels_toe(personen, alleen_opgegeven)
+
+
+def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> dict[str, str]:
+    """Label = roepnaam of eerste voornaam; zonder bekende voornaam "Persoon N".
+
+    Twee verschillende personen met dezelfde voornaam: "Jan" en "Jan (2)".
+    """
     gebruikt: dict[str, int] = {}
     zonder = 0
+    # Wie dezelfde achternaam heeft als een opgegeven familielid, hoort er
+    # waarschijnlijk ook bij; anders zou "Piet Jansen" de familienaam verraden.
+    familienamen = {_norm(p.achternaam) for p in personen if p.opgegeven and p.achternaam}
     for p in sorted(personen, key=lambda p: p.positie):
+        if alleen_opgegeven and not p.opgegeven and _norm(p.achternaam) not in familienamen:
+            p.label = None
+            continue
         basis = p.roepnaam or (p.voornamen[0] if p.voornamen else None)
         if basis:
             basis = _hoofdletter(basis) if basis.isupper() else basis
@@ -637,9 +689,50 @@ def koppel_personen(vermeldingen: list[Vermelding]) -> tuple[list[Persoon], dict
     letters = iter("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     for p in sorted(personen, key=lambda p: p.positie):
         a = _norm(p.achternaam)
-        if a and a not in families and len(met_achternaam(p.achternaam)) > 1:
+        zelfde = [q for q in personen if a and _norm(q.achternaam) == a]
+        if a not in families and len(zelfde) > 1 and any(q.label is not None for q in zelfde):
             families[a] = f"Familie {next(letters, '?')}"
-    return personen, families
+    return families
+
+
+class Vrager:
+    """Vraagt de gebruiker om een voornaam als die nergens in het document staat."""
+
+    def __init__(self, invoer=input, onthoud: Path | None = None):
+        self.invoer = invoer
+        self.onthoud = onthoud            # antwoorden worden hier achteraan toegevoegd
+        self.antwoorden: dict[tuple[str, str], str | None] = {}
+        self.actief = True
+
+    def vul_aan(self, personen: list[Persoon], bron: str, met_pagina: bool = True) -> bool:
+        gewijzigd = False
+        for p in sorted(personen, key=lambda p: p.positie):
+            if p.voornamen or p.roepnaam or p.label is None or not p.achternaam:
+                continue
+            sleutel = (_norm(p.achternaam), p.initialen[:1])
+            schoon = " ".join([f"{i}." for i in p.initialen] + [p.achternaam])
+            if sleutel not in self.antwoorden:
+                if not self.actief:
+                    continue
+                gezien = p.teksten[0] if p.teksten else schoon
+                waar = f", pagina {p.positie[0] + 1}" if met_pagina and p.positie[0] >= 0 else ""
+                try:
+                    antwoord = self.invoer(
+                        f"  ? Geen voornaam gevonden voor '{gezien}' ({bron}{waar}).\n"
+                        f"    Voornaam (Enter = overslaan, - = niet meer vragen): ").strip()
+                except EOFError:
+                    antwoord = "-"
+                if antwoord == "-":
+                    self.actief = False
+                    continue
+                self.antwoorden[sleutel] = antwoord or None
+                if antwoord and self.onthoud:
+                    with self.onthoud.open("a", encoding="utf-8") as f:
+                        f.write(f"{schoon} = {antwoord}\n")
+            if self.antwoorden[sleutel]:
+                p.roepnaam = self.antwoorden[sleutel]
+                gewijzigd = True
+        return gewijzigd
 
 
 def _hoofdletter(t: str) -> str:
@@ -705,11 +798,16 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
     return [(re.compile(rf"{NW}(?:{pat}){NA}"), label) for pat, label in patronen]
 
 
-def vind_namen(tekst: str, patronen: list[tuple[re.Pattern, str]]) -> list[Vondst]:
+def vind_namen(tekst: str, patronen: list[tuple[re.Pattern, str | None]]) -> list[Vondst]:
     uit = []
     for regex, label in patronen:
         for m in regex.finditer(tekst):
-            uit.append(Vondst(m.start(), m.end(), "naam", label, 2))
+            if label is None:
+                # Geen familielid: de naam blijft staan, maar "claimt" de plek zodat
+                # een kortere familienaam er niet in gevonden wordt.
+                uit.append(Vondst(m.start(), m.end(), "behouden", m[0], 2))
+            else:
+                uit.append(Vondst(m.start(), m.end(), "naam", label, 2))
     return uit
 
 
@@ -753,6 +851,8 @@ def _lettergrootte(rect: fitz.Rect, tekst: str) -> float:
 def redigeer_pagina(page: fitz.Page, pt: PaginaTekst, vondsten: list[Vondst]) -> None:
     labels: list[tuple[fitz.Rect, str]] = []
     for v in vondsten:
+        if v.soort == "behouden":
+            continue
         per_regel: dict[int, fitz.Rect] = {}
         for vak in pt.vakken[v.start:v.eind]:
             if vak is None:
@@ -776,6 +876,21 @@ def redigeer_pagina(page: fitz.Page, pt: PaginaTekst, vondsten: list[Vondst]) ->
             grootte = _lettergrootte(rect, tekst)
         page.insert_text((rect.x0, rect.y1 - rect.height * 0.2), tekst,
                          fontname="helv", fontsize=grootte, color=(0.25, 0.25, 0.25))
+
+
+def verwijder_afbeeldingen(page: fitz.Page) -> int:
+    """Haal foto's, handtekeningen en logo's weg; tekst eromheen blijft staan."""
+    vakken = [fitz.Rect(i["bbox"]) for i in page.get_image_info()]
+    vakken = [r for r in vakken if not r.is_empty]
+    for r in vakken:
+        page.add_redact_annot(r, fill=(0.92, 0.92, 0.92))
+    if vakken:
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_REMOVE,
+                              graphics=fitz.PDF_REDACT_LINE_ART_NONE, text=fitz.PDF_REDACT_TEXT_NONE)
+        for r in vakken:
+            page.insert_text((r.x0 + 2, r.y0 + 9), "[afbeelding verwijderd]", fontname="helv",
+                             fontsize=7, color=(0.4, 0.4, 0.4))
+    return len(vakken)
 
 
 def schoon_document(doc: fitz.Document) -> None:
@@ -803,14 +918,20 @@ class Resultaat:
 
 class Anonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
-                 gebruik_ner: bool = True, alle_datums: bool = False):
+                 gebruik_ner: bool = True, alle_datums: bool = False, alleen_familie: bool = False,
+                 vrager: Vrager | None = None, zonder_afbeeldingen: bool = False):
         self.herkenner = NaamHerkenner(gebruik_ner, behoud or set(), namen or [])
         self.alle_datums = alle_datums
+        self.alleen_familie = alleen_familie
+        self.vrager = vrager
+        self.zonder_afbeeldingen = zonder_afbeeldingen
 
-    def analyseer(self, paginas: list[str]):
+    def analyseer(self, paginas: list[str], bron: str = "tekst"):
         """Vind alle vondsten per pagina (namen worden over het hele document gekoppeld)."""
         vermeldingen = self.herkenner.vermeldingen(paginas)
-        personen, families = koppel_personen(vermeldingen)
+        personen, families = koppel_personen(vermeldingen, self.alleen_familie)
+        if self.vrager and self.vrager.vul_aan(personen, bron):
+            families = ken_labels_toe(personen, self.alleen_familie)
         patronen = naam_patronen(personen, families, vermeldingen)
         register = Register()
         per_pagina, blijft = [], 0
@@ -838,7 +959,7 @@ class Anonimiseerder:
         scans = [i + 1 for i, (p, l) in enumerate(zip(doc, lezingen))
                  if not l.tekst.strip() and p.get_images()]
 
-        per_pagina, personen, patronen, register, blijft = self.analyseer(paginas)
+        per_pagina, personen, patronen, register, blijft = self.analyseer(paginas, invoer.name)
 
         # Ook de bestandsnaam kan namen bevatten.
         stam = anonieme_bestandsnaam(invoer.stem, patronen, register)
@@ -847,7 +968,8 @@ class Anonimiseerder:
         tellingen: dict[str, int] = {}
         for vs in per_pagina:
             for v in vs:
-                tellingen[v.soort] = tellingen.get(v.soort, 0) + 1
+                if v.soort != "behouden":
+                    tellingen[v.soort] = tellingen.get(v.soort, 0) + 1
 
         tekst_pad = pdf_pad = None
         if maak_tekst:
@@ -863,6 +985,8 @@ class Anonimiseerder:
             for page, pt, vs in zip(doc, lezingen, per_pagina):
                 if vs:
                     redigeer_pagina(page, pt, vs)
+                if self.zonder_afbeeldingen and (n := verwijder_afbeeldingen(page)):
+                    tellingen["afbeelding"] = tellingen.get("afbeelding", 0) + n
             schoon_document(doc)
             pdf_pad = uitmap / f"{stam}_anoniem.pdf"
             doc.save(pdf_pad, garbage=4, deflate=True, clean=True)
@@ -885,7 +1009,8 @@ def anonieme_bestandsnaam(stam: str, patronen, register: Register) -> str:
 def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> None:
     sleutel = {
         "personen": {p.label: {"voornamen": p.voornamen, "roepnaam": p.roepnaam,
-                               "initialen": p.initialen, "achternaam": p.achternaam} for p in personen},
+                               "initialen": p.initialen, "achternaam": p.achternaam}
+                     for p in personen if p.label is not None},
         "rekeningen en tegenpartijen": {label: waarde for (_, waarde), label in register.labels.items()},
     }
     pad.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -899,7 +1024,7 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
             nieuw = re.sub(r"\s+", " ", page.get_text())
             for v in vs:
                 origineel = re.sub(r"\s+", " ", tekst[v.start:v.eind]).strip()
-                if v.soort in ("datum", "geboortedatum") or len(origineel) < 3:
+                if v.soort in ("datum", "geboortedatum", "overlijdensdatum", "behouden") or len(origineel) < 3:
                     continue
                 if origineel.lower() == v.vervanging.lower():
                     continue   # een losse voornaam blijft zichzelf ("Jan" -> "Jan")
@@ -929,6 +1054,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--namen", type=Path,
                     help="tekstbestand met namen die zeker vervangen moeten worden (één per regel); "
                          "met '= roepnaam' erachter wordt die roepnaam het label")
+    ap.add_argument("--familie", type=Path,
+                    help="tekstbestand met je familie- en gezinsleden; ALLEEN deze namen worden "
+                         "vervangen (standaard: familie.txt in de huidige map, als die bestaat)")
+    ap.add_argument("--alle-namen", action="store_true",
+                    help="vervang alle namen, ook als er een familie.txt is")
+    ap.add_argument("--niet-vragen", action="store_true",
+                    help="niet om ontbrekende voornamen vragen")
+    ap.add_argument("--zonder-afbeeldingen", action="store_true",
+                    help="haal ook foto's, handtekeningen en logo's uit de PDF")
     ap.add_argument("--behoud", type=Path,
                     help="tekstbestand met woorden/namen die NIET vervangen mogen worden (één per regel)")
     ap.add_argument("--alle-datums", action="store_true",
@@ -960,7 +1094,19 @@ def main(argv: list[str] | None = None) -> int:
 
     from bankdata import BankAnonimiseerder
 
-    namen, behoud = lees_lijst(args.namen), set(lees_lijst(args.behoud))
+    familie = args.familie
+    if familie is None and not args.alle_namen and Path("familie.txt").is_file():
+        familie = Path("familie.txt")
+    if args.alle_namen:
+        familie = None
+    if familie:
+        print(f"Familielijst {familie}: alleen deze personen worden vervangen "
+              "(--alle-namen om alle namen te vervangen).\n")
+    namen = lees_lijst(args.namen) + lees_lijst(familie)
+    behoud = set(lees_lijst(args.behoud))
+    vrager = None
+    if not args.niet_vragen and sys.stdin.isatty():
+        vrager = Vrager(onthoud=familie or args.namen)
     anon = bank = None
     fouten = 0
     for i, pad in enumerate(bestanden, 1):
@@ -968,11 +1114,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if pad.suffix.lower() == ".pdf":
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
-                                              alle_datums=args.alle_datums)
+                                              alle_datums=args.alle_datums, alleen_familie=bool(familie),
+                                              vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen)
                 r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             else:
-                bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen)
+                bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
+                                                  alleen_familie=bool(familie), vrager=vrager)
                 r = bank.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)
@@ -984,7 +1132,7 @@ def main(argv: list[str] | None = None) -> int:
             if uit:
                 print(f"     -> {uit}")
         if r.datums_blijven:
-            print(f"     ! {r.datums_blijven} datum(s) zonder geboorte-context niet aangepast "
+            print(f"     ! {r.datums_blijven} datum(s) zonder geboorte-/overlijdenscontext niet aangepast "
                   "(gebruik --alle-datums om ook die te vervangen)")
         if r.scans:
             print(f"     ! pagina('s) {', '.join(map(str, r.scans))} lijken gescand (geen tekst): "

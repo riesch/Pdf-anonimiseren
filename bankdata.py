@@ -8,7 +8,7 @@ uitgaven te analyseren. Wat wordt vervangen:
                                   (ook in omschrijvingen)
   * kenmerken/referenties      -> "[kenmerk]"
   * pasnummers                 -> "[pasnummer]"
-  * klant-/polis-/contractnrs  -> "[klantnummer]"
+  * klant-/polis-/contractnrs  -> "[klantnummer]", "[polisnummer]", ...
   * BSN, adressen, e-mail, telefoon in omschrijvingen (zoals bij PDF's)
 
 Namen van bedrijven (winkels, energieleverancier, gemeente, ...) blijven staan, zodat
@@ -69,10 +69,6 @@ NAAM_IN_TEKST_RE = re.compile(
 )
 TIKKIE_RE = re.compile(r"(?i)\bvan[ ]+([A-Za-zÀ-ÿ.' -]+?),")
 PAS_RE = re.compile(r"(?i)\b(?:pas(?:nr|nummer|volgnr)?|kaart(?:nr|nummer)?|card)(?![a-z])\.?[ :]*(\d{2,})")
-KLANTNR_RE = re.compile(
-    r"(?i)\b(?:klant|contract|polis|dossier|abonnee|abonnements|lid|lidmaatschaps|relatie|debiteur|"
-    r"verzekerde|leerling|cli[eë]nt)(?:nr|nummer|-?nr\.?)\b\.?[ :]*([A-Z0-9][A-Z0-9-]{3,})"
-)
 GETAL_OF_DATUM_RE = re.compile(r"^[\s+\-−]*[\d.,:/ -]*\d[\d.,:/ -]*$|^\s*$")
 
 
@@ -213,8 +209,11 @@ def _is_rekening(waarde: str) -> bool:
 
 class BankAnonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
-                 alle_tegenpartijen: bool = False):
+                 alle_tegenpartijen: bool = False, alleen_familie: bool = False,
+                 vrager: an.Vrager | None = None):
         self.herkenner = an.NaamHerkenner(False, behoud or set(), namen or [])
+        self.alleen_familie = alleen_familie
+        self.vrager = vrager
         self.behoud = {an._norm(b) for b in (behoud or set())}
         self.alle_tegenpartijen = alle_tegenpartijen
 
@@ -261,12 +260,17 @@ class BankAnonimiseerder:
             for r, k, cel in cellen(rol):
                 for _, _, waarde in self._namen_in_tekst(cel):
                     vermeldingen += ontleed_banknaam(waarde, (r, k))
-        personen, families = an.koppel_personen(vermeldingen)
+        personen, families = an.koppel_personen(vermeldingen, self.alleen_familie)
+        if self.vrager and self.vrager.vul_aan(personen, invoer.name, met_pagina=False):
+            families = an.ken_labels_toe(personen, self.alleen_familie)
         patronen = an.naam_patronen(personen, families, vermeldingen)
 
         def naam_label(waarde: str) -> str:
             vondsten = an.kies_vondsten(an.vind_namen(waarde, patronen))
-            return an.pas_toe(waarde, vondsten) if vondsten else "[naam]"
+            if vondsten:
+                return an.pas_toe(waarde, vondsten)
+            # Niet herkend: met een familielijst is het geen familielid, anders voor de zekerheid weg.
+            return waarde if self.alleen_familie else "[naam]"
 
         tellingen: dict[str, int] = {}
 
@@ -280,11 +284,10 @@ class BankAnonimiseerder:
             vondsten += [an.Vondst(s, e, "naam", naam_label(w), 3) for s, e, w in self._namen_in_tekst(tekst)]
             vondsten += [an.Vondst(m.start(1), m.end(1), "pasnummer", "[pasnummer]", 8)
                          for m in PAS_RE.finditer(tekst)]
-            vondsten += [an.Vondst(m.start(1), m.end(1), "klantnummer", "[klantnummer]", 8)
-                         for m in KLANTNR_RE.finditer(tekst)]
             gekozen = an.kies_vondsten(vondsten)
             for v in gekozen:
-                tel(v.soort)
+                if v.soort != "behouden":
+                    tel(v.soort)
             return an.pas_toe(tekst, gekozen)
 
         # Ronde 2: elke cel volgens de rol van de kolom vervangen.
@@ -304,7 +307,8 @@ class BankAnonimiseerder:
                 elif rol == "naam":
                     if self._persoon(cel):
                         rij[k] = naam_label(cel)
-                        tel("naam")
+                        if rij[k] != cel:
+                            tel("naam")
                     elif self.alle_tegenpartijen:
                         rij[k] = register.label("tegenpartij", an._norm(cel), "tegenpartij")
                         tel("tegenpartij")

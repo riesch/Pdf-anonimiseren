@@ -14,7 +14,6 @@ ANTWOORDEN = [
     "",                        # roepnaam -> Richard
     "111222334",               # ongeldig BSN -> opnieuw gevraagd
     "111222333",               # BSN
-    "12-03-1985",              # geboortedatum
     "Kerkstraat", "12a", "3512 JK",   # adres 1
     "",                        # klaar
 ]
@@ -52,7 +51,7 @@ def test_bestand_bevat_geen_leesbare_gegevens(lijst):
     pad, _ = lijst
     inhoud = pad.read_text(encoding="utf-8")
     assert "Richard Pieter Jansen" in inhoud
-    for geheim in ("111222333", "1985", "Kerkstraat", "3512"):
+    for geheim in ("111222333", "Kerkstraat", "3512"):
         assert geheim not in inhoud
     assert an.lees_lijst(pad) == ["Richard Pieter Jansen"]
 
@@ -61,9 +60,9 @@ def test_bsn_en_adres_krijgen_naam(lijst):
     pad, sleutel = lijst
     uit = _anon(pad, sleutel).anonimiseer_tekst(
         "Richard Jansen, BSN 111.222.333, woont op Kerkstr. 12 A, 3512 JK Utrecht.\n"
-        "Datum: 12-03-1985. Ander BSN: 123456782. Buurman woont op Kerkstraat 14.")
+        "Geboren 12-03-1985. Ander BSN: 123456782. Buurman woont op Kerkstraat 14.")
     assert uit == ("Richard, BSN [BSN Richard], woont op [adres Richard], [adres Richard].\n"
-                   "Datum: 1985. Ander BSN: [BSN]. Buurman woont op [adres].")
+                   "Geboren 1985. Ander BSN: [BSN]. Buurman woont op [adres].")
 
 
 def test_familiemodus(lijst):

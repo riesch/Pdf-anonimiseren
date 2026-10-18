@@ -163,30 +163,51 @@ class Anonimiseerder:
         # zodat ook ingevulde formulieren geanonimiseerd worden.
         if hasattr(doc, "bake"):
             doc.bake(annots=True, widgets=True)
+        # Verborgen lagen aanzetten en tekst buiten het paginavlak weghalen: allebei
+        # onzichtbaar, maar wel in de PDF aanwezig.
+        extra: dict[str, int] = {}
+        if n := zet_lagen_aan(doc):
+            extra["verborgen laag (aangezet)"] = n
+        if n := sum(verwijder_tekst_buiten_pagina(page) for page in doc):
+            extra["tekst buiten pagina (verwijderd)"] = n
         lezingen, scans, ocr_paginas, afbeeldingen = [], [], [], []
+        ocr_controle: list[int] = []   # pagina's die na afloop met OCR nagelezen worden
         for nr, page in enumerate(doc, 1):
             lezing = lees_pagina(page)
             if lijkt_scan(page, lezing.tekst):
-                if self.ocr_taal:
+                try:
+                    if not self.ocr_taal:
+                        raise RuntimeError("geen OCR")
                     tp = page.get_textpage_ocr(language=self.ocr_taal, dpi=300, full=True)
                     lezing = lees_pagina(page, tp)
                     lezing.ocr = True
                     ocr_paginas.append(nr)
-                else:
+                    ocr_controle.append(nr)
+                except Exception:   # geen Tesseract of OCR mislukt: pagina telt als lek
                     scans.append(nr)
             else:
                 tabellen = zoek_tabellen(page)
                 if (groot := grote_afbeeldingen(page)) and not self.zonder_afbeeldingen:
-                    # Een digitale pagina met een ingevoegde scan: alleen de afbeeldingen
-                    # met OCR lezen en die tekst samenvoegen met de digitale tekst.
-                    if self.ocr_taal:
-                        tp = page.get_textpage_ocr(language=self.ocr_taal, dpi=300, full=False)
-                        met_ocr = lees_pagina(page, tp)
-                        if met_ocr.ocr_regels:
-                            lezing = met_ocr
-                            ocr_paginas.append(nr)
-                    else:
-                        afbeeldingen.append((nr, max(aandeel for _, aandeel in groot)))
+                    # Een afbeelding met al een tekstlaag (doorzoekbare scan) niet opnieuw
+                    # lezen: dan zou de tekst dubbel in de uitvoer staan.
+                    met_tekst = [r for r, _ in groot if heeft_tekstlaag(lezing, r)]
+                    zonder_tekst = [(r, a) for r, a in groot if r not in met_tekst]
+                    if met_tekst and self.ocr_taal:
+                        ocr_controle.append(nr)   # wel nalezen of de scan echt schoon is
+                    if zonder_tekst:
+                        # Een digitale pagina met een ingevoegde scan: alleen de afbeeldingen
+                        # met OCR lezen en die tekst samenvoegen met de digitale tekst.
+                        try:
+                            if not self.ocr_taal:
+                                raise RuntimeError("geen OCR")
+                            tp = page.get_textpage_ocr(language=self.ocr_taal, dpi=300, full=False)
+                            met_ocr = lees_pagina(page, tp, negeer_ocr=met_tekst)
+                            if met_ocr.ocr_regels:
+                                lezing = met_ocr
+                                ocr_paginas.append(nr)
+                                ocr_controle.append(nr)
+                        except Exception:
+                            afbeeldingen.append((nr, max(aandeel for _, aandeel in zonder_tekst)))
                 lezing.tabellen = tabellen
             lezingen.append(lezing)
         paginas = [l.tekst for l in lezingen]
@@ -200,7 +221,7 @@ class Anonimiseerder:
         stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie)
         uitmap.mkdir(parents=True, exist_ok=True)
 
-        tellingen: dict[str, int] = {}
+        tellingen: dict[str, int] = dict(extra)
         for vs in per_pagina:
             for v in vs:
                 if v.soort != "behouden":
@@ -225,7 +246,7 @@ class Anonimiseerder:
             schoon_document(doc)
             pdf_pad = uitmap / f"{stam}_anoniem.pdf"
             doc.save(pdf_pad, garbage=4, deflate=True, clean=True)
-            lekken = controleer(pdf_pad, paginas, per_pagina, ocr_paginas, self.ocr_taal)
+            lekken = controleer(pdf_pad, paginas, per_pagina, sorted(set(ocr_controle)), self.ocr_taal)
         doc.close()
 
         if sleutelbestand:
@@ -271,8 +292,12 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
     lekken = []
     with fitz.open(pdf_pad) as doc:
         for i, (page, tekst, vs) in enumerate(zip(doc, paginas, per_pagina), 1):
-            tp = page.get_textpage_ocr(language=ocr_taal, dpi=300, full=True) \
-                if i in ocr_paginas and ocr_taal else None
+            tp = None
+            if i in ocr_paginas and ocr_taal:
+                try:
+                    tp = page.get_textpage_ocr(language=ocr_taal, dpi=300, full=True)
+                except Exception:
+                    lekken.append((i, "pagina (nalezen met OCR mislukt)"))
             nieuw = re.sub(r"\s+", " ", page.get_text(textpage=tp))
             for v in vs:
                 origineel = re.sub(r"\s+", " ", tekst[v.start:v.eind]).strip()
@@ -401,6 +426,10 @@ def main(argv: list[str] | None = None) -> int:
     geheime_sleutel = fam.geheime_sleutel()
     gegevens = fam.lees_familie(args.namen, geheime_sleutel)
     gegevens.samenvoegen(fam.lees_familie(familie, geheime_sleutel))
+    for waarschuwing in gegevens.waarschuwingen:
+        print(f"Let op: {waarschuwing}")
+    if gegevens.waarschuwingen:
+        print()
     if gegevens.heeft_afdrukken and not gegevens.sleutel_klopt:
         print(f"Let op: de BSN's/adressen in de familielijst zijn met een andere sleutel gemaakt dan "
               f"die in {fam.sleutel_locatie()}; ze worden niet herkend. Importeer de juiste sleutel met "

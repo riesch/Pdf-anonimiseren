@@ -121,11 +121,6 @@ def pas_toe(tekst: str, vondsten: list[Vondst]) -> str:
 # Detectie van BSN, IBAN, contactgegevens, data en adressen
 # ---------------------------------------------------------------------------
 
-BSN_LABEL_RE = re.compile(
-    r"(?i)\b(?:bsn|burgerservicenummer|burger[ -]service[ -]nummer|sofi[- ]?nummer|sofinr|persoonsnummer)"
-    r"\b[^\d\n]{0,25}?(\d[\d .]{6,12}\d)"
-)
-BSN_RE = re.compile(r"(?<![\d.,\w-])(\d{4}\.\d{2}\.\d{3}|\d{3}[ .]\d{3}[ .]\d{3}|\d{9})(?![\d\w]|[.,]\d)")
 
 # Tussen de groepjes mogen spaties en ook een regelovergang staan: in aangiften en akten
 # loopt een rekeningnummer soms door op de volgende regel. Lengte per land en de
@@ -137,11 +132,16 @@ REKENING_LABEL_RE = re.compile(
     r"\b\.?[ \t]*[:.]?[ \t]*(\d{1,3}(?:[ .]?\n?[ \t]*\d){5,9})(?!\d)"
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_LANDCODES = "1 7 20 27 30 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98 211 212 213 216 218 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 248 249 250 251 252 253 254 255 256 257 258 260 261 262 263 264 265 266 267 268 269 290 291 297 298 299 350 351 352 353 354 355 356 357 358 359 370 371 372 373 374 375 376 377 378 380 381 382 383 385 386 387 389 420 421 423 500 501 502 503 504 505 506 507 508 509 590 591 592 593 594 595 596 597 598 599 852 853 855 856 880 886 960 961 962 963 964 965 966 967 968 970 971 972 973 974 975 976 977 992 993 994 995 996 998".split()   # zonder 31 (Nederland, apart hierboven)
 TELEFOON_RE = re.compile(
     # Nederlands: 06-12345678, 030-1234567, +31 (0)6 12345678
     r"(?<![\w+])(?:(?:\+|00)31[ \t-]?(?:\(0\)[ \t-]?)?|0)[1-9](?:[ \t-]?\d){8}(?!\d)"
-    # buitenlands, altijd met + of 00 en landcode: +32 470 12 34 56, 0049 151 23456789
-    r"|(?<![\w+])(?:\+|00)(?!31)[1-9]\d{0,2}[ \t-]?(?:\(0\)[ \t-]?)?\d(?:[ \t-]?\d){6,11}(?!\d)"
+    # buitenlands met +landcode: +32 470 12 34 56
+    r"|(?<![\w+])\+(?!31)[1-9]\d{0,2}[ \t-]?(?:\(0\)[ \t-]?)?\d(?:[ \t-]?\d){6,11}(?!\d)"
+    # buitenlands met 00: alleen een bestaande landcode gevolgd door een spatie of streepje
+    # (0049 151 23456789), zodat kenmerken als "0012 3456 7890" geen telefoonnummer worden
+    r"|(?<![\w+])00(?:" + "|".join(sorted(_LANDCODES, key=len, reverse=True)) + r")(?=[ \t-])"
+    r"[ \t-]?(?:\(0\)[ \t-]?)?\d(?:[ \t-]?\d){6,11}(?!\d)"
 )
 
 MAANDEN = {
@@ -396,14 +396,9 @@ class Register:
 def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list[Vondst], int]:
     vondsten: list[Vondst] = []
 
-    # Prioriteit bij gelijke lengte: "BSN 123…" (11) > documentnummer na "paspoort" (10)
-    # > los nummer dat door de elfproef komt (9). Een paspoortnummer van 9 cijfers kan
-    # namelijk toevallig ook door de elfproef komen.
-    for m in BSN_LABEL_RE.finditer(tekst):
-        vondsten.append(Vondst(m.start(1), m.end(1), "bsn", "[BSN]", 11))
-    for m in BSN_RE.finditer(tekst):
-        if elfproef(re.sub(r"\D", "", m[1])):
-            vondsten.append(Vondst(m.start(1), m.end(1), "bsn", "[BSN]", 9))
+    # BSN's worden hier bewust NIET herkend: alleen het BSN van een familielid uit
+    # familie.txt wordt vervangen (zie familie.py). Andere BSN's blijven staan; het
+    # controlerapport meldt nummers van 9 cijfers wel als verdacht.
 
     for m in IBAN_RE.finditer(tekst):
         ruw = m[1]
@@ -446,6 +441,9 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
             if m[groep]:
                 vondsten.append(Vondst(m.start(groep), m.end(groep), "adres", label, 4))
     for m in DOCUMENT_RE.finditer(tekst):
+        # "paspoort, afgegeven …, BSN 111222333": dat nummer is het BSN, geen documentnummer
+        if re.search(r"(?i)\b(?:bsn|burgerservicenummer|sofi-?nummer)\b", tekst[m.start():m.start(1)]):
+            continue
         vondsten.append(Vondst(m.start(1), m.end(1), "document", "[documentnummer]", 10))
     for m in KADASTER_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(1), m.end(1), "adres", "[kadastrale aanduiding]", 4))

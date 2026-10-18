@@ -35,7 +35,7 @@ def test_tabel_wordt_markdown_tabel(tmp_path):
     r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
     tekst = r.tekst.read_text(encoding="utf-8")
     assert ("| Naam | Geboortedatum | BSN |\n|---|---|---|\n"
-            "| Richard | 1980 | [BSN] |\n| Anna | 1982 | [BSN] |") in tekst
+            "| Richard | 1980 | 111222333 |\n| Anna | 1982 | 123456782 |") in tekst   # BSN alleen via familie
     assert r.tabellen == 1 and r.datums_blijven == 0 and not r.gemarkeerd
 
 
@@ -62,13 +62,13 @@ def test_scan_wordt_met_ocr_geanonimiseerd(tmp_path):
     r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
     assert r.ocr == [1] and not r.scans and not r.gemarkeerd
     tekst = r.tekst.read_text(encoding="utf-8")
-    assert "Naam: Richard" in tekst and "Jansen" not in tekst and "[BSN]" in tekst
+    assert "Naam: Richard" in tekst and "Jansen" not in tekst and "ABNA4300" in tekst
     # Ook in de afbeelding zelf is het weg: opnieuw lezen met OCR vindt het niet meer.
     with pymupdf.open(r.pdf) as d:
         pagina = d[0]
         tp = pagina.get_textpage_ocr(language=an.ocr_talen(), dpi=300, full=True)
         gelezen = pagina.get_text(textpage=tp)
-    assert "Jansen" not in gelezen and "111222333" not in gelezen and "0417" not in gelezen
+    assert "Jansen" not in gelezen and "0417" not in gelezen
     assert "OCR" in r.rapport.read_text(encoding="utf-8")
 
 
@@ -97,8 +97,8 @@ def test_ingevoegde_scan_wordt_gelezen(tmp_path):
     _brief_met_scan(bron)
     r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
     tekst = r.tekst.read_text(encoding="utf-8")
-    assert "Hierbij de gevraagde kopie" in tekst and "Naam: Richard" in tekst and "[BSN]" in tekst
-    assert "Jansen" not in tekst and "111222333" not in tekst and r.ocr == [1] and not r.gemarkeerd
+    assert "Hierbij de gevraagde kopie" in tekst and "Naam: Richard" in tekst
+    assert "Jansen" not in tekst and r.ocr == [1] and not r.gemarkeerd
 
 
 def test_ingevoegde_scan_zonder_ocr_is_lek(tmp_path):
@@ -125,3 +125,68 @@ def test_tekst_in_tabelvak_buiten_cellen_blijft_bewaard():
     pt = an.PaginaTekst(tekst, vakken, tabellen=[tabel])
     md = an.pagina_markdown(pt, [])
     assert "| A | B |" in md and "noot" in md
+
+
+def test_verborgen_laag_wordt_gelezen_en_weggepoetst(tmp_path):
+    bron = tmp_path / "lagen.pdf"
+    doc = pymupdf.open()
+    pagina = doc.new_page()
+    laag = doc.add_ocg("Verborgen laag", on=False)
+    pagina.insert_text((40, 60), "Naam: Jan Jansen", fontsize=11)
+    pagina.insert_text((40, 90), "Rekening NL91ABNA0417164300", fontsize=11, oc=laag)
+    doc.save(bron)
+    r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
+    with pymupdf.open(r.pdf) as d:
+        ruw = b"".join(d.xref_stream(x) or b"" for x in d[0].get_contents())
+    assert b"0417164300" not in ruw and "ABNA4300" in r.tekst.read_text(encoding="utf-8")
+    assert r.tellingen.get("verborgen laag (aangezet)") == 1
+
+
+def test_tekst_buiten_pagina_verwijderd(tmp_path):
+    bron = tmp_path / "buiten.pdf"
+    doc = pymupdf.open()
+    pagina = doc.new_page()
+    pagina.insert_text((40, 60), "Naam: Jan Jansen", fontsize=11)
+    pagina.insert_text((700, 900), "Karel Klaassen", fontsize=11)   # buiten het paginavlak
+    doc.save(bron)
+    r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
+    with pymupdf.open(r.pdf) as d:
+        assert "Klaassen" not in d[0].get_text(clip=pymupdf.INFINITE_RECT())
+    assert r.tellingen.get("tekst buiten pagina (verwijderd)") == 1
+
+
+def _doorzoekbare_scan(pad, tekst):
+    bron = pymupdf.open()
+    bron.new_page().insert_text((50, 80), tekst, fontsize=12)
+    pix = bron[0].get_pixmap(dpi=200, colorspace=pymupdf.csGRAY)
+    doc = pymupdf.open()
+    pagina = doc.new_page(width=bron[0].rect.width, height=bron[0].rect.height)
+    pagina.insert_image(pagina.rect, pixmap=pix)
+    pagina.insert_text((50, 80), tekst, fontsize=12, render_mode=3)   # onzichtbare tekstlaag
+    doc.save(pad)
+
+
+@ocr_nodig
+def test_doorzoekbare_scan_niet_dubbel(tmp_path):
+    bron = tmp_path / "scan.pdf"
+    _doorzoekbare_scan(bron, "Naam: Richard Jansen\nWoonplaats: Utrecht")
+    r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
+    tekst = r.tekst.read_text(encoding="utf-8")
+    assert tekst.count("Naam: Richard") == 1 and "Jansen" not in tekst and not r.gemarkeerd
+    with pymupdf.open(r.pdf) as d:   # ook de afbeelding zelf is schoongepoetst
+        pagina = d[0]
+        tp = pagina.get_textpage_ocr(language=an.ocr_talen(), dpi=300, full=True)
+        assert "Jansen" not in pagina.get_text(textpage=tp)
+
+
+def test_ocr_fout_markeert_pagina_in_plaats_van_crash(tmp_path, monkeypatch):
+    bron = tmp_path / "scan.pdf"
+    _scan_pdf(bron, "Naam: Richard Jansen")
+    a = an.Anonimiseerder(gebruik_ner=False)
+    a.ocr_taal = "nld"
+
+    def kapot(*args, **kwargs):
+        raise RuntimeError("tesseract kapot")
+    monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", kapot)
+    r = a.verwerk(bron, tmp_path / "uit")
+    assert r.scans == [1] and r.gemarkeerd

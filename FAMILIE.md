@@ -130,6 +130,10 @@ Tips:
 
 ## 3. BSN, geboortedatum en adres: via vragen
 
+**Let op:** BSN's worden **alleen** vervangen als ze van een familielid zijn en zo zijn
+toegevoegd. Andere BSN's (bijvoorbeeld van een getuige of notaris) blijven staan; het
+controlerapport meldt nummers van 9 cijfers wel als verdacht, zodat je ze kunt nakijken.
+
 Deze gegevens worden niet leesbaar opgeslagen, maar als vingerafdruk. Laat het script ze daarom
 zelf toevoegen:
 
@@ -179,7 +183,8 @@ Richard Pieter Jansen
 | het BSN van Richard | `[BSN Richard]` |
 | `Kerkstraat 12a`, `Kerkstr. 12 A`, `3512 JK` | `[adres Richard]` |
 | zijn geboortedatum, in elke schrijfwijze (ook voluit, ook zonder "geboren") | `1980` |
-| een ander BSN / adres | `[BSN]` / `[adres]` |
+| een ander BSN | blijft staan: BSN's worden **alleen** via `familie.txt` vervangen |
+| een ander adres | `[adres]` |
 
 Geboortedatum kun je typen als `10-02-1980`, `10/02/1980`, `10 februari 1980`, `10 feb. 1980`
 of voluit (`tien februari negentienhonderdtachtig`).
@@ -230,7 +235,8 @@ keer niet opnieuw gevraagd wordt. Met `--niet-vragen` vraagt het script niets.
 | Gegevensregel zonder spaties ervoor: `telefoon: 06-…` | wordt gelezen als een (ongeldige) naam en genegeerd | `    telefoon: 06-…` |
 | `familie.txt` op een plek waar het script niet zoekt | niet gevonden: alle namen worden vervangen (het script meldt dat) | zet hem in `~/pdf-anonimiseren`, of gebruik `--familie pad` |
 | Dezelfde persoon op twee regels met een andere achternaam (`Anna de Vries` en `Anna Jansen`) | twee personen: `Anna` en `Anna (2)` | één regel: `Anna de Vries \| Anna Jansen = Anna` |
-| BSN leesbaar typen: `    bsn: 111222333` | wordt genegeerd | `--familie-toevoegen` |
+| BSN, adres of geboortedatum leesbaar typen: `    bsn: …` | wordt niet gebruikt; het script waarschuwt (met regelnummer) | `--familie-toevoegen` |
+| Een gegevensregel zonder `soort:` ervoor | wordt niet begrepen; het script waarschuwt | `    telefoon: 06-…` |
 | Sleutel kwijt | BSN, geboortedatum en adres worden niet meer herkend | reservekopie met `--sleutel-exporteren` |
 
 ## Beperkingen

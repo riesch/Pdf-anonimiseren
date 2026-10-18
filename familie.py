@@ -210,6 +210,7 @@ class Familiegegevens:
     per_regel: dict[str, dict[str, str]] = field(default_factory=dict)  # naamregel -> {afdruk: soort}
     leesbaar: dict[str, list[tuple[str, str]]] = field(default_factory=dict)  # naamregel -> [(label, waarde)]
     sleutel_klopt: bool = True
+    waarschuwingen: list[str] = field(default_factory=list)   # zonder de waarden zelf
 
     @property
     def heeft_afdrukken(self) -> bool:
@@ -224,6 +225,7 @@ class Familiegegevens:
             self.per_regel.setdefault(regel, {}).update(afdrukken)
         for regel, waarden in ander.leesbaar.items():
             self.leesbaar.setdefault(regel, []).extend(waarden)
+        self.waarschuwingen += ander.waarschuwingen
         self.sleutel_klopt &= ander.sleutel_klopt
 
 
@@ -238,7 +240,7 @@ def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:
         return gegevens
     naamregel = None
     gezien_controle = None
-    for regel in pad.read_text(encoding="utf-8").splitlines():
+    for regelnr, regel in enumerate(pad.read_text(encoding="utf-8").splitlines(), 1):
         if m := CONTROLE_RE.search(regel):
             gezien_controle = m[1]
         if not regel.strip() or regel.lstrip().startswith("#"):
@@ -248,8 +250,17 @@ def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:
             gegevens.per_regel.setdefault(naamregel, {})
         elif naamregel and (m := GEGEVEN_RE.match(regel)):
             gegevens.per_regel[naamregel][m[2].lower()] = m[1].lower()
-        elif naamregel and (m := LEESBAAR_RE.match(regel)) and m[1].lower() not in GEHEIM:
-            gegevens.leesbaar.setdefault(naamregel, []).append((m[1].strip().lower(), m[2]))
+        elif naamregel and (m := LEESBAAR_RE.match(regel)):
+            if m[1].strip().lower() in GEHEIM:
+                # Zelf getypt BSN/adres/geboortedatum: wordt niet gebruikt (alleen vingerafdrukken).
+                gegevens.waarschuwingen.append(
+                    f"{pad.name}, regel {regelnr}: '{m[1].strip()}:' zelf getypt wordt niet gebruikt. "
+                    f"Haal de regel weg en voeg het toe met --familie-toevoegen.")
+            else:
+                gegevens.leesbaar.setdefault(naamregel, []).append((m[1].strip().lower(), m[2]))
+        elif regel[:1].isspace() and regel.strip() and not GEGEVEN_RE.match(regel):
+            gegevens.waarschuwingen.append(
+                f"{pad.name}, regel {regelnr}: niet begrepen (verwacht 'soort: waarde' onder een naam).")
     if gegevens.heeft_afdrukken:
         gegevens.sleutel_klopt = sleutel is not None and gezien_controle in (None, controle(sleutel))
     return gegevens

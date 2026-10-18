@@ -27,7 +27,7 @@ def test_iban():
 
 def test_bsn_en_iban(anon):
     uit = anon.anonimiseer_tekst("BSN: 111.222.333, rekening NL91ABNA0417164300 en NL91 ABNA 0417 1643 00.")
-    assert "111" not in uit
+    assert "BSN: 111.222.333" in uit   # BSN alleen via familie.txt
     assert uit.count("ABNA4300") == 2
 
 
@@ -131,7 +131,7 @@ def test_pdf(tmp_path, anon):
     assert not r.lekken
     with pymupdf.open(r.pdf) as d:
         tekst = d[0].get_text()
-        assert "Jansen" not in tekst and "111222333" not in tekst and "Kerkstraat" not in tekst
+        assert "Jansen" not in tekst and "Kerkstraat" not in tekst
         assert not d.metadata["author"]
     assert "Naam: Jan" in r.tekst.read_text(encoding="utf-8")
 
@@ -207,12 +207,12 @@ def test_adres_uit_context(anon, tekst, verwacht):
      "met zijn identiteitsbewijs (paspoort) nummer [documentnummer]"),
     ("reisdocument: NW1234567", "reisdocument: [documentnummer]"),
     ("rijbewijs nummer 5123456789", "rijbewijs nummer [documentnummer]"),
-    ("paspoort, afgegeven op 12-03-2015, BSN 111222333", "paspoort, afgegeven op 12-03-2015, BSN [BSN]"),
+    ("paspoort, afgegeven op 12-03-2015, BSN 111222333", "paspoort, afgegeven op 12-03-2015, BSN 111222333"),
     # Een documentnummer van 9 cijfers dat toevallig door de elfproef komt, blijft een documentnummer.
     ("zich legitimerende met paspoort nummer 123456782, afgegeven",
      "zich legitimerende met paspoort nummer [documentnummer], afgegeven"),
     ("paspoortnummer: 111222333", "paspoortnummer: [documentnummer]"),
-    ("paspoort nummer NW1234567, BSN 111222333", "paspoort nummer [documentnummer], BSN [BSN]"),
+    ("paspoort nummer NW1234567, BSN 111222333", "paspoort nummer [documentnummer], BSN 111222333"),
     ("paspoort verlopen in 2020", "paspoort verlopen in 2020"),
 ])
 def test_documentnummers(anon, tekst, verwacht):
@@ -224,7 +224,7 @@ def test_documentnummers(anon, tekst, verwacht):
     ("Rekeningnummer: NL91ABNA041716\n4300", "Rekeningnummer: ABNA4300"),
     ("IBAN NL91 ABNA\n0417 1643 00", "IBAN ABNA4300"),
     ("NL91ABNA0417164300\nNL20INGB0001234567", "ABNA4300\nINGB4567"),
-    ("IBAN NL91ABNA0417164300\nBSN 111222333", "IBAN ABNA4300\nBSN [BSN]"),
+    ("IBAN NL91ABNA0417164300\nBSN 111222333", "IBAN ABNA4300\nBSN 111222333"),
     ("rekeningnummer 1234\n567 (oud)", "rekeningnummer ****4567 (oud)"),
 ])
 def test_rekeningnummer_over_twee_regels(anon, tekst, verwacht):
@@ -310,3 +310,17 @@ def test_geboortenaam_en_getrouwde_naam_een_persoon():
     uit = a.anonimiseer_tekst("Mevrouw A.W. Jansen-de Vries, geboren De Vries. Anna Jansen-de Vries tekent.")
     assert uit == "Mevrouw Anna, geboren Anna. Anna tekent."
     assert "(2)" not in uit
+
+
+@pytest.mark.parametrize("tekst, verwacht", [
+    ("Kenmerk 0012 3456 7890 en ordernummer 0049123456789", "Kenmerk 0012 3456 7890 en ordernummer 0049123456789"),
+    ("Bel 0049 151 23456789 of +49 151 23456789", "Bel [telefoon] of [telefoon]"),
+    ("Bel 0032 470 12 34 56", "Bel [telefoon]"),
+])
+def test_telefoon_met_00_alleen_met_landcode(anon, tekst, verwacht):
+    assert anon.anonimiseer_tekst(tekst) == verwacht
+
+
+def test_bsn_alleen_via_familie(anon):
+    assert anon.anonimiseer_tekst("BSN: 111222333, burgerservicenummer 123456782") == \
+        "BSN: 111222333, burgerservicenummer 123456782"

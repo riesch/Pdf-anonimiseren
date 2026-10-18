@@ -93,7 +93,7 @@ def test_bsn_en_adres_krijgen_naam(lijst):
         "Richard Jansen, BSN 111.222.333, woont op Kerkstr. 12 A, 3512 JK Utrecht.\n"
         "Datum: 12-03-1985. Ander BSN: 123456782. Buurman woont op Kerkstraat 14.")
     assert uit == ("Richard, BSN [BSN Richard], woont op [adres Richard].\n"
-                   "Datum: 1985. Ander BSN: [BSN]. Buurman woont op [adres].")
+                   "Datum: 1985. Ander BSN: 123456782. Buurman woont op [adres].")   # BSN alleen via familie
 
 
 def test_familiemodus(lijst):
@@ -208,3 +208,13 @@ def test_samenvatting_bij_meerdere_bestanden(tmp_path, capsys):
         doc.save(tmp_path / naam)
     an.main([str(tmp_path / "a.pdf"), str(tmp_path / "b.pdf"), "--geen-ner", "--niet-vragen", "--alle-namen"])
     assert "Samenvatting: 2 bestanden – 2 schoon" in capsys.readouterr().out
+
+
+def test_waarschuwing_bij_zelf_getypt_bsn_of_adres(tmp_path):
+    pad = tmp_path / "familie.txt"
+    pad.write_text("Jan Jansen\n    adres: Kerkstraat 12\n    bsn: 111222333\n    telefoon: 06-12345678\n",
+                   encoding="utf-8")
+    g = fam.lees_familie(pad, None)
+    assert len(g.waarschuwingen) == 2 and "regel 2" in g.waarschuwingen[0] and "regel 3" in g.waarschuwingen[1]
+    assert not any("Kerkstraat" in w or "111222333" in w for w in g.waarschuwingen)   # geen waarden tonen
+    assert g.leesbaar == {"jan jansen": [("telefoon", "06-12345678")]}

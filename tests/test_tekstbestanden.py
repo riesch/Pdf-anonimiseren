@@ -34,9 +34,9 @@ def test_docx(tmp_path):
         bron, tmp_path / "uit")
     md = r.tekst.read_text(encoding="utf-8")
     assert r.tekst.name == "Brief Richard_anoniem.md"
-    assert "| Naam | BSN |" in md and "| Richard | [BSN] |" in md and "ABNA4300" in md
+    assert "| Naam | BSN |" in md and "| Richard | 111222333 |" in md and "ABNA4300" in md
     assert "## Voettekst" in md and "Karin" in md and "[telefoon]" in md and "## Opmerkingen" in md
-    for geheim in ("Jansen", "Visser", "111222333", "06-12345678"):
+    for geheim in ("Jansen", "Visser", "06-12345678"):
         assert geheim not in md
 
 
@@ -52,7 +52,7 @@ def test_eml(tmp_path):
     r = an.Anonimiseerder(namen=["Richard Jansen", "Karin Visser"], gebruik_ner=False).verwerk_tekst(
         bron, tmp_path / "uit")
     md = r.tekst.read_text(encoding="utf-8")
-    assert "Van: Karin <[e-mail]>" in md and "Onderwerp: Aangifte Richard" in md and "BSN [BSN]" in md
+    assert "Van: Karin <[e-mail]>" in md and "Onderwerp: Aangifte Richard" in md and "BSN 111222333" in md
     assert "aangifte.pdf" in md and "niet geanonimiseerd" in md
     assert "Visser" not in md and "Jansen" not in md and "@" not in md
 

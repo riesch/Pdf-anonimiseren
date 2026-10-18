@@ -33,7 +33,9 @@ class PaginaTekst:
     ocr_regels: set[int] = field(default_factory=set)   # regels uit OCR van een afbeelding
 
 
-def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
+def lees_pagina(page: fitz.Page, textpage=None, negeer_ocr: list[fitz.Rect] = ()) -> PaginaTekst:
+    """Lees de tekst met de positie van elk teken. negeer_ocr: gebieden (afbeeldingen met al
+    een tekstlaag, zoals een doorzoekbare scan) waar OCR-tekst dubbel zou zijn."""
     tekens: list[str] = []
     vakken: list[tuple[fitz.Rect, int] | None] = []
     vlaggen = fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_MEDIABOX_CLIP
@@ -46,6 +48,8 @@ def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
         for regel in blok["lines"]:
             for span in regel["spans"]:
                 if span.get("font", "").startswith("GlyphLess"):   # tekst uit OCR
+                    if any(r.contains(_midden(fitz.Rect(span["bbox"]))) for r in negeer_ocr):
+                        continue
                     ocr_regels.add(regel_id)
                 for ch in span["chars"]:
                     tekens.append(ch["c"])
@@ -87,6 +91,34 @@ def grote_afbeeldingen(page: fitz.Page) -> list[tuple[fitz.Rect, float]]:
         if r.width >= 60 and r.height >= 30 and abs(r) >= 0.03 * abs(page.rect):
             uit.append((r, abs(r) / abs(page.rect)))
     return uit
+
+
+def heeft_tekstlaag(pt: PaginaTekst, gebied: fitz.Rect) -> bool:
+    """Ligt er al tekst over dit gebied (zoals de onzichtbare tekstlaag van een doorzoekbare scan)?"""
+    return sum(1 for vak in pt.vakken if vak and gebied.contains(_midden(vak[0]))) >= 10
+
+
+def verwijder_tekst_buiten_pagina(page: fitz.Page) -> int:
+    """Tekst buiten het paginavlak is onzichtbaar, maar staat wel in de PDF: weghalen."""
+    vakken = [fitz.Rect(s["bbox"]) for b in page.get_text("dict", clip=fitz.INFINITE_RECT())["blocks"]
+              if b.get("type") == 0 for regel in b["lines"] for s in regel["spans"]
+              if s["text"].strip() and not fitz.Rect(s["bbox"]).intersects(page.rect)]
+    for r in vakken:
+        page.add_redact_annot(r)
+    if vakken:
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+    return len(vakken)
+
+
+def zet_lagen_aan(doc: fitz.Document) -> int:
+    """Verborgen lagen (optionele inhoud) aanzetten, zodat ook die tekst gelezen en
+    weggepoetst wordt. Geeft het aantal lagen dat uit stond."""
+    aan = 0
+    for i, laag in enumerate(doc.layer_ui_configs()):
+        if not laag.get("on") and laag.get("type") in ("checkbox", "radiobox"):
+            doc.set_layer_ui_config(i, 0)
+            aan += 1
+    return aan
 
 
 def zoek_tabellen(page: fitz.Page) -> list[Tabel]:

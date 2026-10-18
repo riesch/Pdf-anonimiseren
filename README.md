@@ -11,14 +11,14 @@ zodat je ze veilig(er) aan een AI kunt geven. Alles draait op je eigen computer.
 | Twee verschillende personen met dezelfde voornaam | `Jan` en `Jan (2)` |
 | Persoon van wie geen voornaam bekend is (bijv. alleen `A. de Vries`) | `Persoon 1`, `Persoon 2`, … |
 | Alleen een achternaam die bij meerdere personen hoort (bijv. "Dhr. Jansen") | `Familie A` |
-| BSN | `[BSN]` |
+| BSN | **alleen** het BSN van een familielid uit `familie.txt` → `[BSN Richard]`; andere BSN's blijven staan (het controlerapport meldt ze) |
 | Adressen (straat + huisnummer, postcode + plaats, velden als "Adres:") | `[adres]` |
 | Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit, zoals in akten: "de tiende februari negentienhonderd en tachtig") |
 | IBAN / rekeningnummers | bankcode + laatste 4 cijfers: `NL91 ABNA 0417 1643 00` → `ABNA4300` |
 | Twee rekeningen bij dezelfde bank met dezelfde laatste 4 cijfers | `ABNA4300` en `ABNA4300 (2)` |
 | Buitenlandse IBAN met cijfers als bankcode / oud rekeningnummer | `DE3000` / `****6789` |
 | IBAN in kleine letters of over twee regels (`nl91abna…`, `NL91 ABNA 0417` ⏎ `1643 00`) | ook `ABNA4300` |
-| E-mailadressen en telefoonnummers (ook buitenlands: `+32 …`, `0049 …`) | `[e-mail]` / `[telefoon]` |
+| E-mailadressen en telefoonnummers (ook buitenlands: `+32 …`, `0049 151 …`) | `[e-mail]` / `[telefoon]` |
 | Overlijdensdatum | alleen het jaar |
 | Kenteken (`12-ABC-3`, `12 ABC 3`) | `[kenteken]` |
 | Klant-, polis-, dossier-, zaak-, patiënt-, personeels-, studentnummer | `[polisnummer]`, `[patiëntnummer]`, … |
@@ -30,13 +30,18 @@ zodat je ze veilig(er) aan een AI kunt geven. Alles draait op je eigen computer.
 Het Markdown-bestand bevat nooit afbeeldingen; `--zonder-afbeeldingen` is alleen nodig als je de PDF zelf deelt.
 Uit de PDF worden ook metadata, bladwijzers, bijlagen, paginaminiaturen en de
 toegankelijkheidsstructuur verwijderd, want ook daarin kunnen de originele gegevens staan.
+Verborgen lagen worden aangezet (zodat ook die tekst geanonimiseerd wordt) en tekst buiten het
+paginavlak wordt verwijderd: allebei onzichtbaar, maar wel in de PDF aanwezig.
+
+Een nummer met `00` ervoor is alleen een telefoonnummer als er een bestaande landcode en een
+spatie of streepje volgt (`0049 151 …`); kenmerken als `0012 3456 7890` blijven zo staan.
 
 ### Familie- en gezinsleden: familie.txt
 
 In grote bestanden met veel namen (akten, dossiers, notulen) is het vaak alleen zinvol om je
 eigen familie te anonimiseren. Zet je familieleden in `familie.txt`, in de map waar je het
 script start. Dan worden **alleen zij** vervangen (ook als `J. Jansen`, `Dhr. Jansen`, …); andere
-namen, zoals die van de notaris, blijven staan. BSN's, adressen, rekeningnummers enz. worden wel
+namen, zoals die van de notaris, blijven staan. Adressen, rekeningnummers enz. worden wel
 bij iedereen vervangen.
 
 ```
@@ -100,7 +105,7 @@ Hier blijven **datums en bedragen** juist staan, zodat een AI je uitgaven nog ka
 | Bedrijven (Albert Heijn, Eneco, Gemeente, …) | blijven staan; met `--alle-tegenpartijen` → `[tegenpartij 1]` |
 | Machtigingskenmerk, betalingskenmerk, transactiereferentie | `[kenmerk]` |
 | Pasnummers, klant-/polis-/contractnummers in omschrijvingen | `[pasnummer]` / `[klantnummer]` |
-| BSN, adressen, e-mail, telefoon in omschrijvingen | zoals bij PDF's |
+| Adressen, e-mail, telefoon in omschrijvingen (BSN alleen van familieleden) | zoals bij PDF's |
 
 Het resultaat is weer een CSV/TXT met dezelfde kolommen (`<naam>_anoniem.csv`), zo opgeslagen
 dat Excel letters als `ë` goed toont. Ook een rekeningnummer in de bestandsnaam wordt vervangen.
@@ -151,6 +156,11 @@ identiteitsbewijs onder een brief, wordt met OCR gelezen en geanonimiseerd. Klei
 iconen worden overgeslagen. Kan een afbeelding niet gelezen worden (geen Tesseract of
 `--geen-ocr`), dan telt dat als lek en krijgt het bestand `_CONTROLEREN`.
 
+**Doorzoekbare scans** (een scan met een onzichtbare tekstlaag, zoals veel scanners en notarissen
+maken) worden via die tekstlaag geanonimiseerd en niet nog eens met OCR gelezen; ter controle
+wordt de uitvoer wel met OCR nagelezen. Mislukt OCR op een pagina, dan telt die pagina als lek
+(`_CONTROLEREN`) en gaat het script verder met de rest.
+
 **Scans.** Een pagina die alleen uit een afbeelding bestaat (een scan zonder tekstherkenning)
 wordt automatisch met OCR gelezen, in het Nederlands en Engels. Daarna wordt hij net zo
 geanonimiseerd als een digitale pagina: de gegevens worden in de afbeelding zelf
@@ -168,7 +178,7 @@ kolom staat:
 ```
 | Naam | Geboortedatum | BSN |
 |---|---|---|
-| Richard | 1980 | [BSN] |
+| Richard | 1980 | [BSN Richard] |
 ```
 
 Een kolom met kop *Naam*, *Achternaam* of *Voornamen* wordt als naam behandeld en een kolom met
@@ -216,7 +226,8 @@ elk met de regel eromheen en het verdachte stuk tussen `»…«`:
   want daar blijven andere namen bewust staan);
 - de achternaam van een familielid als deel van een woord (`www.richardjansen.nl`), of in kleine
   letters als die achternaam ook een gewoon woord is (`groot`, `bakker`);
-- een nummer van 9 cijfers (een BSN met een tikfout?), iets dat op een rekeningnummer lijkt;
+- een nummer van 9 cijfers (een BSN van iemand die niet in `familie.txt` staat?), iets dat op
+  een rekeningnummer lijkt;
 - een volledige datum (een geboortedatum zonder "geboren" ervoor?). Niet bij bankdata.
 
 Het rapport bevat alleen tekst uit de uitvoer, nooit de originele gegevens, maar deel het niet
@@ -325,8 +336,8 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
 2. Namen worden gevonden via titels (`Dhr.`, `mevrouw`, …), velden (`Naam:`, `Achternaam:`, …),
    het Nederlandse spaCy-taalmodel en je eigen `--namen`-lijst. Over het hele document
    wordt bepaald welke vermeldingen bij dezelfde persoon horen (`Jan Jansen`, `J. Jansen`, `Jan`).
-3. BSN's worden herkend met de elfproef (of als ze na "BSN" staan), IBAN's met de
-   controlesom; geboortedata aan woorden als "geboren", "geb." of "Geboortedatum".
+3. BSN's alleen als ze van een familielid zijn (vingerafdruk uit `familie.txt`), IBAN's met de
+   controlesom, geboortedata aan woorden als "geboren", "geb." of "Geboortedatum".
 4. In de PDF wordt de originele tekst weggeredigeerd en vervangen door het label.
 5. Daarna wordt de uitvoer gecontroleerd op lekken en verdachte plekken (zie hierboven).
 

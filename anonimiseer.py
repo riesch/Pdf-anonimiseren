@@ -17,6 +17,7 @@ Het tekstbestand is het handigst om aan een AI te voeren.
 Gebruik:
     python anonimiseer.py brief.pdf
     python anonimiseer.py map_met_pdfs/ -o uitvoer/ --namen namen.txt
+    python anonimiseer.py NL00BANK0123456789_2024.csv     # bankexport, zie bankdata.py
 """
 
 from __future__ import annotations
@@ -283,6 +284,8 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
     for m in EMAIL_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(), m.end(), "email", "[e-mail]", 7))
     for m in TELEFOON_RE.finditer(tekst):
+        if DATUM_NUM_RE.search(m[0]) or tekst[m.end():m.end() + 1] == ":":
+            continue  # datum met tijd, zoals "05-01-2024 18:12"
         vondsten.append(Vondst(m.start(), m.end(), "telefoon", "[telefoon]", 6))
 
     for regex in (STRAAT_RE, POSTCODE_RE):
@@ -408,7 +411,7 @@ class NaamHerkenner:
             return False
         return all(len(d) >= 2 and not any(c.isdigit() for c in d) for d in delen)
 
-    def vermeldingen(self, paginas: list[str]) -> list[Vermelding]:
+    def vermeldingen(self, paginas: list[str], labels: bool = True) -> list[Vermelding]:
         uit: list[Vermelding] = []
 
         def voeg_toe(tekst, pos, hint=None):
@@ -423,7 +426,7 @@ class NaamHerkenner:
                 # Na een titel is één woord een achternaam ("Dhr. Jansen").
                 hint = "achternaam" if " " not in m[1].strip() else None
                 voeg_toe(m[1], (p, m.start(1)), hint)
-            for m in LABEL_NAAM_RE.finditer(tekst):
+            for m in (LABEL_NAAM_RE.finditer(tekst) if labels else ()):
                 soort = m[1].lower()
                 hint = ("achternaam" if soort in ("achternaam", "geslachtsnaam", "geboortenaam")
                         else "voornaam" if soort in ("voornamen", "voornaam", "roepnaam") else None)
@@ -545,7 +548,8 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
     for p in personen:
         vn_alt = "|".join(_tok(v) for v in p.voornamen)
         inits = {v[0].upper() for v in p.voornamen} | ({p.initialen[0]} if p.initialen else set())
-        init_pat = (rf"(?:{'|'.join(sorted(inits))})\.[ ]?(?:[{HOOFD}]\.[ ]?){{0,4}}" if inits else None)
+        init_pat = (rf"(?:{'|'.join(sorted(inits))})(?:\.[ ]?|[ ])(?:[{HOOFD}](?:\.[ ]?|[ ])){{0,4}}"
+                    if inits else None)
         if p.achternaam:
             ach = _achternaam_patroon(p.achternaam)
             # Tussenvoegsel aan het begin mag ook met hoofdletter ("Van den Berg").
@@ -716,8 +720,7 @@ class Anonimiseerder:
         per_pagina, personen, patronen, register, blijft = self.analyseer(paginas)
 
         # Ook de bestandsnaam kan namen bevatten.
-        stam_vondsten = kies_vondsten(vind_namen(invoer.stem, patronen))
-        stam = re.sub(r"[^\w\- ]+", "", pas_toe(invoer.stem, stam_vondsten)).strip() or "document"
+        stam = anonieme_bestandsnaam(invoer.stem, patronen, register)
         uitmap.mkdir(parents=True, exist_ok=True)
 
         tellingen: dict[str, int] = {}
@@ -746,14 +749,25 @@ class Anonimiseerder:
         doc.close()
 
         if sleutelbestand:
-            sleutel = {
-                "personen": {p.label: {"voornamen": p.voornamen, "initialen": p.initialen,
-                                       "achternaam": p.achternaam} for p in personen},
-                "rekeningen": {label: waarde for (_, waarde), label in register.labels.items()},
-            }
-            sleutelbestand.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
+            schrijf_sleutel(sleutelbestand, personen, register)
 
         return Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken)
+
+
+def anonieme_bestandsnaam(stam: str, patronen, register: Register) -> str:
+    """Ook een bestandsnaam kan een naam of rekeningnummer bevatten."""
+    overig, _ = vind_overig(stam, register, alle_datums=False)
+    vondsten = kies_vondsten(overig + vind_namen(stam, patronen))
+    return re.sub(r"[^\w\- ]+", "", pas_toe(stam, vondsten)).strip() or "document"
+
+
+def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> None:
+    sleutel = {
+        "personen": {p.label: {"voornamen": p.voornamen, "initialen": p.initialen,
+                               "achternaam": p.achternaam} for p in personen},
+        "rekeningen en tegenpartijen": {label: waarde for (_, waarde), label in register.labels.items()},
+    }
+    pad.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]) -> list[tuple[int, str]]:
@@ -771,6 +785,9 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
     return lekken
 
 
+ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt"}
+
+
 def lees_lijst(pad: Path | None) -> list[str]:
     if not pad:
         return []
@@ -780,9 +797,10 @@ def lees_lijst(pad: Path | None) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="Anonimiseer PDF's (namen, BSN, adressen, geboortedata, rekeningnummers) "
-                    "zodat ze aan een AI gegeven kunnen worden.")
-    ap.add_argument("invoer", nargs="+", type=Path, help="PDF-bestand(en) of map(pen) met PDF's")
+        description="Anonimiseer PDF's en bankexports (namen, BSN, adressen, geboortedata, "
+                    "rekeningnummers) zodat ze aan een AI gegeven kunnen worden.")
+    ap.add_argument("invoer", nargs="+", type=Path,
+                    help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt) of map(pen) daarmee")
     ap.add_argument("-o", "--uitvoer", type=Path, default=Path("geanonimiseerd"),
                     help="uitvoermap (standaard: ./geanonimiseerd)")
     ap.add_argument("--namen", type=Path,
@@ -795,6 +813,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="gebruik geen spaCy-taalmodel voor naamherkenning (alleen patronen en --namen)")
     ap.add_argument("--alleen-tekst", action="store_true", help="maak alleen het Markdown-tekstbestand")
     ap.add_argument("--alleen-pdf", action="store_true", help="maak alleen de geanonimiseerde PDF")
+    ap.add_argument("--alle-tegenpartijen", action="store_true",
+                    help="bankexports: vervang ook namen van bedrijven/winkels (standaard alleen privépersonen)")
     ap.add_argument("--sleutel", action="store_true",
                     help="schrijf ook een sleutelbestand (pseudoniem -> echte gegevens). "
                          "Bevat persoonsgegevens: deel dit nooit met een AI!")
@@ -803,23 +823,33 @@ def main(argv: list[str] | None = None) -> int:
     bestanden: list[Path] = []
     for pad in args.invoer:
         if pad.is_dir():
-            bestanden += sorted(p for p in pad.rglob("*") if p.suffix.lower() == ".pdf")
-        elif pad.suffix.lower() == ".pdf" and pad.exists():
+            # .txt alleen als het bestand expliciet wordt genoemd (bijv. namen.txt niet meenemen)
+            bestanden += sorted(p for p in pad.rglob("*") if p.suffix.lower() in ONDERSTEUND - {".txt"}
+                                and not p.stem.endswith("_anoniem"))
+        elif pad.suffix.lower() in ONDERSTEUND and pad.exists():
             bestanden.append(pad)
         else:
-            print(f"Overgeslagen (geen PDF of bestaat niet): {pad}", file=sys.stderr)
+            print(f"Overgeslagen (geen PDF/bankexport of bestaat niet): {pad}", file=sys.stderr)
     if not bestanden:
-        print("Geen PDF-bestanden gevonden.", file=sys.stderr)
+        print("Geen PDF-bestanden of bankexports gevonden.", file=sys.stderr)
         return 1
 
-    anon = Anonimiseerder(lees_lijst(args.namen), set(lees_lijst(args.behoud)),
-                          gebruik_ner=not args.geen_ner, alle_datums=args.alle_datums)
+    from bankdata import BankAnonimiseerder
+
+    namen, behoud = lees_lijst(args.namen), set(lees_lijst(args.behoud))
+    anon = bank = None
     fouten = 0
     for i, pad in enumerate(bestanden, 1):
         sleutel = args.uitvoer / f"sleutel_{i}.json" if args.sleutel else None
         try:
-            r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
-                             maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
+            if pad.suffix.lower() == ".pdf":
+                anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
+                                              alle_datums=args.alle_datums)
+                r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
+                                 maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
+            else:
+                bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen)
+                r = bank.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)
             fouten += 1
@@ -836,7 +866,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"     ! pagina('s) {', '.join(map(str, r.scans))} lijken gescand (geen tekst): "
                   "NIET geanonimiseerd. Laat eerst OCR uitvoeren.")
         for pagina, soort in r.lekken:
-            print(f"     ! pagina {pagina}: een {soort} staat mogelijk nog in de PDF, controleer handmatig")
+            waar = f"pagina {pagina}: " if pagina else ""
+            print(f"     ! {waar}een {soort} staat mogelijk nog in het bestand, controleer handmatig")
         if sleutel:
             print(f"     sleutel: {sleutel} (bevat persoonsgegevens, niet delen!)")
     print("\nControleer het resultaat altijd zelf voordat je het met een AI deelt.")

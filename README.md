@@ -1,6 +1,8 @@
 # Pdf-anonimiseren
 
-Script om PDF-bestanden te anonimiseren, zodat je ze veilig(er) aan een AI kunt geven.
+Script om PDF-bestanden en bankexports te anonimiseren, zodat je ze veilig(er) aan een AI kunt geven.
+
+## PDF-bestanden
 
 | Gegeven | Wordt |
 |---|---|
@@ -14,6 +16,37 @@ Script om PDF-bestanden te anonimiseren, zodat je ze veilig(er) aan een AI kunt 
 
 Daarnaast worden metadata (auteur, titel), bladwijzers en bijlagen uit de PDF verwijderd,
 worden ingevulde formuliervelden meegenomen, en wordt een naam in de bestandsnaam ook vervangen.
+
+## Bankexports (CSV/TXT)
+
+Exports van je bankrekening (ING, Rabobank, ABN AMRO, ASN/SNS, Triodos, bunq, Knab, …)
+gaan met hetzelfde commando:
+
+```bash
+python anonimiseer.py NL00BANK0123456789_01-01-2024_31-12-2024.csv
+python anonimiseer.py TXT240101.TXT          # ABN AMRO tekst-export
+```
+
+Hier blijven **datums en bedragen** juist staan, zodat een AI je uitgaven nog kan analyseren.
+
+| Gegeven | Wordt |
+|---|---|
+| Je eigen rekeningnummer(s) | `[eigen rekening 1]` (ook als ze als tegenrekening voorkomen, bijv. sparen) |
+| Andere rekeningnummers | `[IBAN 1]`, `[IBAN 2]`, … (vast per rekening, dus terugkerende betalingen blijven herkenbaar) |
+| Privépersonen als tegenpartij (`HR J JANSEN EO`, `J. Jansen`) | `Persoon 1`, … – ook in de omschrijving |
+| Bedrijven (Albert Heijn, Eneco, Gemeente, …) | blijven staan; met `--alle-tegenpartijen` → `[tegenpartij 1]` |
+| Machtigingskenmerk, betalingskenmerk, transactiereferentie | `[kenmerk]` |
+| Pasnummers, klant-/polis-/contractnummers in omschrijvingen | `[pasnummer]` / `[klantnummer]` |
+| BSN, adressen, e-mail, telefoon in omschrijvingen | zoals bij PDF's |
+
+Het resultaat is weer een CSV/TXT met dezelfde kolommen (`<naam>_anoniem.csv`). Ook een
+rekeningnummer in de bestandsnaam wordt vervangen.
+
+Of een tegenpartij een persoon of een bedrijf is, wordt geschat: woorden als *B.V.*,
+*Stichting*, *Gemeente*, cijfers of bekende winkelnamen wijzen op een bedrijf; titels
+(*HR*, *MW*) of initialen + achternaam op een persoon. Wordt een bedrijf toch als persoon
+gezien, zet de naam dan in `behoud.txt`. Voornamen die alleen in een vrije omschrijving staan
+("cadeau voor Sanne") worden alleen vervangen als ze in `namen.txt` staan.
 
 ## Installatie
 
@@ -43,6 +76,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | `--alle-datums` | vervang álle datums door het jaartal, niet alleen geboortedata |
 | `--geen-ner` | geen taalmodel gebruiken, alleen patronen en `--namen` |
 | `--alleen-tekst` / `--alleen-pdf` | maak maar één soort uitvoer |
+| `--alle-tegenpartijen` | bankexports: vervang ook namen van bedrijven en winkels |
 | `--sleutel` | schrijf ook `sleutel_N.json` met welk pseudoniem bij wie hoort. **Bevat persoonsgegevens – nooit aan een AI geven.** |
 
 Tip: zet de namen van je gezinsleden in `namen.txt` en gebruik `--namen namen.txt`. Dat is
@@ -68,7 +102,10 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
   titel/veld kunnen gemist worden. Gebruik `--namen` voor de namen die er echt toe doen.
 * Een datum zonder geboorte-aanduiding in de buurt (bijvoorbeeld in een tabel) blijft staan;
   het script meldt hoeveel. Gebruik dan `--alle-datums`.
-* Andere gegevens zoals polisnummers, klantnummers of kentekens worden niet herkend.
+* In PDF's worden polisnummers, klantnummers of kentekens niet herkend.
+* Bankexports: alleen CSV/TXT. MT940, CAMT.053 (XML) en Excel worden (nog) niet ondersteund.
+* Een map doorzoeken neemt `.pdf`, `.csv` en `.tsv` mee; een `.txt`-bestand alleen als je het
+  zelf noemt (zodat `namen.txt` niet als bankexport wordt gezien).
 
 ## Tests
 

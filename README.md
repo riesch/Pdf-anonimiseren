@@ -252,12 +252,13 @@ met een AI. Met `--geen-rapport` wordt het niet geschreven (de lekcheck blijft w
 
 ## Installatie
 
-Je hebt **Python 3.10 of nieuwer** nodig. Let op: de Python die op een Mac standaard meegeleverd
-wordt (`/usr/bin/python3`) is 3.9 en te oud. Installeer Python via Homebrew (`brew install python`)
-en maak de omgeving met die versie:
+Je hebt **Python 3.10 tot en met 3.14** nodig; **3.13 wordt aangeraden**. De Python die op een Mac
+standaard meegeleverd wordt (`/usr/bin/python3`) is 3.9 en te oud, en voor Python 3.15 is spaCy
+(naamherkenning) nog niet beschikbaar. Installeer daarom Python 3.13 via Homebrew
+(`brew install python@3.13`) en maak de omgeving met die versie:
 
 ```bash
-/opt/homebrew/bin/python3 -m venv .venv      # Intel-Mac: /usr/local/bin/python3
+/opt/homebrew/bin/python3.13 -m venv .venv   # Intel-Mac: /usr/local/bin/python3.13
 source .venv/bin/activate                    # Windows: .venv\Scripts\activate
 pip install --upgrade pip
 pip install -r requirements.txt

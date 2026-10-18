@@ -10,7 +10,12 @@
 #
 # BSN, geboortedatum en adres voeg je toe met:  python anonimiseer.py --familie-toevoegen
 # Die komen als onleesbare vingerafdruk onder de naam te staan (ingesprongen regels).
+#
+# Telefoon, e-mail, kenteken en eigen termen (werkgever, school, huisarts, ...) mag je
+# zelf leesbaar onder de naam zetten, ingesprongen met spaties:
 
 Johannes Petrus Maria Jansen = Hans
+    telefoon: 06-12345678
+    werkgever: Voorbeeld Installatietechniek
 Anna Wilhelmina de Vries
 Piet Jansen

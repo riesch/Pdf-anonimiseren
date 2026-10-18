@@ -1460,11 +1460,11 @@ def main(argv: list[str] | None = None) -> int:
     sleutel = fam.geheime_sleutel()
     gegevens = fam.lees_familie(args.namen, sleutel)
     gegevens.samenvoegen(fam.lees_familie(familie, sleutel))
-    if not gegevens.leeg and not gegevens.sleutel_klopt:
+    if gegevens.heeft_afdrukken and not gegevens.sleutel_klopt:
         print(f"Let op: de BSN's/adressen in de familielijst zijn met een andere sleutel gemaakt dan "
               f"die in {fam.sleutel_locatie()}; ze worden niet herkend. Importeer de juiste sleutel met "
               "--sleutel-naar-sleutelhanger BESTAND of voeg ze opnieuw toe met --familie-toevoegen.\n")
-        gegevens = None
+        gegevens.per_regel = {}   # leesbare gegevens (telefoon, e-mail, …) blijven werken
     behoud = set(lees_lijst(args.behoud))
     vrager = None
     if not args.niet_vragen and sys.stdin.isatty():

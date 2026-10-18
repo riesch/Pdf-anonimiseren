@@ -122,7 +122,9 @@ def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[an.Persoon],
                     voeg_toe("verdacht", f"{soort} in een langer woord", m.start(), m.end())
         if familie is not None:
             for v in familie.vind(tekst):
-                soort = {"bsn": "BSN", "adres": "adres", "geboortedatum": "geboortedatum"}[v.soort]
+                soort = {"bsn": "BSN", "email": "e-mailadres", "telefoon": "telefoonnummer"}.get(v.soort, v.soort)
+                if v.soort == "overig":   # "[werkgever Richard]" -> "werkgever"
+                    soort = v.vervanging[1:-1].rsplit(" ", 1)[0]
                 voeg_toe("lek", f"{soort} van familielid", v.start, v.eind)
 
         # --- verdacht

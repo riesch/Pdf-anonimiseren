@@ -96,6 +96,33 @@ Maak een reservekopie en bewaar die apart van `familie.txt`: zonder sleutel word
 opgeslagen gegevens niet meer herkend en moet je ze opnieuw toevoegen. Een adres wordt herkend als straat +
 huisnummer (ook afgekort, zoals `Kerkstr. 12 A`), als postcode + huisnummer of als postcode.
 
+### Telefoon, e-mail, kenteken en eigen termen van familieleden
+
+Deze gegevens zet je **leesbaar** onder de naam in `familie.txt`, ingesprongen met spaties.
+Je kunt ze zelf typen of laten vragen door `--familie-toevoegen`:
+
+```
+Richard Pieter Jansen
+    telefoon: 06-12345678
+    e-mail: richard@voorbeeld.nl
+    kenteken: 12-ABC-3
+    werkgever: Jansen Installatietechniek
+    huisarts: Praktijk De Linde
+```
+
+| In een document | Wordt |
+|---|---|
+| `06 1234 5678`, `+31 6 12345678` | `[telefoon Richard]` |
+| het e-mailadres (hoofdletters maken niet uit) | `[e-mail Richard]` |
+| `12-ABC-3` of `12ABC3` | `[kenteken Richard]` |
+| `Jansen Installatietechniek` | `[werkgever Richard]` |
+
+`telefoon`, `e-mail` en `kenteken` zijn vaste namen (`tel`, `mobiel` en `mail` mogen ook). Elke
+andere naam vóór de dubbele punt, zoals `werkgever`, `school` of `huisarts`, wordt het label van
+een eigen term. Telefoonnummers en e-mailadressen van anderen worden gewoon `[telefoon]` en
+`[e-mail]`. Wil je later iets aanvullen, voeg dan een regel toe onder de naam, of voer dezelfde
+naam nog eens in bij `--familie-toevoegen`: de gegevens worden samengevoegd.
+
 ### Ontbrekende voornaam
 
 Staat van iemand alleen een initiaal in het document (`A. de Vries`), dan vraagt het script:
@@ -291,7 +318,7 @@ zelf een andere plek):
 | Optie | Betekenis |
 |---|---|
 | `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
-| `--familie-toevoegen` | met vragen een familielid met BSN, geboortedatum en adres toevoegen |
+| `--familie-toevoegen` | met vragen een familielid toevoegen (BSN, geboortedatum, adres, telefoon, e-mail, kenteken, eigen termen) |
 | `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |

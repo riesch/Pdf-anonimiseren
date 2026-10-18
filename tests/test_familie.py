@@ -17,7 +17,11 @@ ANTWOORDEN = [
     "111222333",               # BSN
     "12-03-1985",              # geboortedatum
     "Kerkstraat", "12a", "3512 JK",   # adres 1
-    "",                        # klaar
+    "",                        # klaar met adressen
+    "+31 6 1234 5678", "",     # telefoon
+    "", "",                    # e-mail (geen), kenteken (geen)
+    "Jansen Installatietechniek B.V.", "werkgever",   # eigen term
+    "",                        # klaar met termen
 ]
 
 
@@ -56,6 +60,31 @@ def test_bestand_bevat_geen_leesbare_gegevens(lijst):
     for geheim in ("111222333", "1985", "Kerkstraat", "3512"):
         assert geheim not in inhoud
     assert an.lees_lijst(pad) == ["Richard Pieter Jansen"]
+
+
+def test_leesbare_gegevens_in_bestand(lijst):
+    pad, _ = lijst
+    inhoud = pad.read_text(encoding="utf-8")
+    assert "    telefoon: +31 6 1234 5678" in inhoud
+    assert "    werkgever: Jansen Installatietechniek B.V." in inhoud
+
+
+def test_telefoon_en_eigen_term_krijgen_naam(lijst):
+    pad, sleutel = lijst
+    uit = _anon(pad, sleutel).anonimiseer_tekst(
+        "Bel 06-12345678 of 06-87654321. Werkzaam bij Jansen Installatietechniek B.V. in Utrecht.")
+    assert uit == "Bel [telefoon Richard] of [telefoon]. Werkzaam bij [werkgever Richard]. in Utrecht."
+
+
+def test_zelf_getypte_gegevens_zonder_sleutel(tmp_path):
+    pad = tmp_path / "familie.txt"
+    pad.write_text("Anna de Vries\n    telefoon: 06 1234 5678\n    e-mail: anna@example.nl\n"
+                   "    kenteken: 12-ABC-3\n    huisarts: Praktijk De Linde\n", encoding="utf-8")
+    a = an.Anonimiseerder(namen=an.lees_lijst(pad), gebruik_ner=False,
+                          familiegegevens=fam.lees_familie(pad, None), sleutel=None)
+    uit = a.anonimiseer_tekst("Anna (+31612345678, ANNA@example.nl) rijdt 12ABC3. Huisarts: praktijk de linde.")
+    assert uit == ("Anna ([telefoon Anna], [e-mail Anna]) rijdt [kenteken Anna]. "
+                   "Huisarts: [huisarts Anna].")
 
 
 def test_bsn_en_adres_krijgen_naam(lijst):
@@ -126,7 +155,7 @@ def test_geboortedatum_in_elke_schrijfwijze(invoer):
 
 
 def test_geboortedatum_herkend_in_andere_schrijfwijze_dan_opgeslagen(tmp_path):
-    antwoorden = iter(["Richard Jansen", "", "", "10-02-1980", ""])
+    antwoorden = iter(["Richard Jansen", "", "", "10-02-1980", "", "", "", "", ""])
     pad = tmp_path / "familie.txt"
     fam.familielid_toevoegen(pad, lambda _: next(antwoorden), tmp_path / "sleutel", sleutelhanger=None)
     sleutel = fam.geheime_sleutel(pad=tmp_path / "sleutel", sleutelhanger=None)
@@ -136,7 +165,7 @@ def test_geboortedatum_herkend_in_andere_schrijfwijze_dan_opgeslagen(tmp_path):
 
 
 def test_geboortedatum_voluit_in_akte_herkend(tmp_path):
-    antwoorden = iter(["Richard Jansen", "", "", "10-02-1980", ""])
+    antwoorden = iter(["Richard Jansen", "", "", "10-02-1980", "", "", "", "", ""])
     pad = tmp_path / "familie.txt"
     fam.familielid_toevoegen(pad, lambda _: next(antwoorden), tmp_path / "sleutel", sleutelhanger=None)
     sleutel = fam.geheime_sleutel(pad=tmp_path / "sleutel", sleutelhanger=None)

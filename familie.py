@@ -1,6 +1,8 @@
 """Persoonsgegevens van familieleden herkennen en vervangen door een label met hun naam.
 
-In familie.txt kun je onder een naam ook BSN, geboortedatum en adres opslaan:
+In familie.txt kun je onder een naam ook gegevens van die persoon zetten. BSN,
+geboortedatum en adres staan er als vingerafdruk; telefoon, e-mail, kenteken en eigen
+termen (werkgever, school, huisarts, …) gewoon leesbaar, zodat je ze zelf kunt typen:
 
     Richard Pieter Jansen = Richard
         bsn: 4f1c0e...            # vingerafdruk, niet het BSN zelf
@@ -34,7 +36,13 @@ SLEUTEL_PAD = Path.home() / ".pdf-anonimiseren" / "sleutel"
 DIENST, ACCOUNT = "pdf-anonimiseren", "familie-sleutel"   # naam in de sleutelhanger
 SYSTEEM = "systeem"
 CONTROLE_RE = re.compile(r"#\s*sleutel-controle:\s*([0-9a-f]+)")
-GEGEVEN_RE = re.compile(r"^\s+(bsn|geboortedatum|adres)\s*:\s*([0-9a-f]{16,64})", re.I)
+# Ingesprongen regels onder een naam. Vingerafdrukken: "    bsn: 86c2…". Leesbaar:
+# "    telefoon: 06-12345678", "    e-mail: …", "    kenteken: 12-ABC-3", "    werkgever: …".
+GEHEIM = ("bsn", "geboortedatum", "adres")
+GEGEVEN_RE = re.compile(r"^\s+(bsn|geboortedatum|adres)\s*:\s*([0-9a-f]{16,64})\s*(?:#.*)?$", re.I)
+LEESBAAR_RE = re.compile(r"^\s+([^\W\d_][\w -]{0,29}?)\s*:\s*(\S.*?)\s*$")
+LABELS = {"telefoon": "telefoon", "tel": "telefoon", "mobiel": "telefoon", "telefoonnummer": "telefoon",
+          "email": "e-mail", "e-mail": "e-mail", "mail": "e-mail", "kenteken": "kenteken"}
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +151,24 @@ def norm_straat(straat: str) -> str:
     return re.sub(r"straat$", "str", _alnum(straat))
 
 
+def norm_telefoon(t: str) -> str:
+    """'+31 6 1234 5678', '0031-6-12345678' en '06-12345678' worden allemaal '0612345678'."""
+    cijfers = re.sub(r"\D", "", t)
+    for land in ("0031", "31"):
+        if cijfers.startswith(land) and len(cijfers) == len(land) + 9:
+            return "0" + cijfers[len(land):]
+    return cijfers
+
+
+def norm_kenteken(k: str) -> str:
+    return re.sub(r"[^0-9A-Z]", "", k.upper())
+
+
+def norm_term(t: str) -> str:
+    """Woorden in kleine letters, zonder leestekens: 'Jansen & Zn. B.V.' -> 'jansen zn b v'."""
+    return " ".join(w.lower() for w in re.findall(r"\w+", t))
+
+
 def sleutels_adres(straat: str, nummer: str, postcode: str) -> list[tuple[str, str]]:
     uit = []
     if straat and nummer:
@@ -161,16 +187,28 @@ def sleutels_adres(straat: str, nummer: str, postcode: str) -> list[tuple[str, s
 @dataclass
 class Familiegegevens:
     per_regel: dict[str, dict[str, str]] = field(default_factory=dict)  # naamregel -> {afdruk: soort}
+    leesbaar: dict[str, list[tuple[str, str]]] = field(default_factory=dict)  # naamregel -> [(label, waarde)]
     sleutel_klopt: bool = True
 
     @property
+    def heeft_afdrukken(self) -> bool:
+        return any(self.per_regel.values())
+
+    @property
     def leeg(self) -> bool:
-        return not any(self.per_regel.values())
+        return not self.heeft_afdrukken and not any(self.leesbaar.values())
 
     def samenvoegen(self, ander: Familiegegevens) -> None:
         for regel, afdrukken in ander.per_regel.items():
             self.per_regel.setdefault(regel, {}).update(afdrukken)
+        for regel, waarden in ander.leesbaar.items():
+            self.leesbaar.setdefault(regel, []).extend(waarden)
         self.sleutel_klopt &= ander.sleutel_klopt
+
+
+def naam_sleutel(regel: str) -> str:
+    """Dezelfde persoon, ook als de roepnaam er de ene keer wel en de andere keer niet bij staat."""
+    return " ".join(regel.split("=")[0].lower().split())
 
 
 def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:
@@ -185,11 +223,13 @@ def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:
         if not regel.strip() or regel.lstrip().startswith("#"):
             continue
         if not regel[:1].isspace():
-            naamregel = regel.strip()
+            naamregel = naam_sleutel(regel)
             gegevens.per_regel.setdefault(naamregel, {})
         elif naamregel and (m := GEGEVEN_RE.match(regel)):
             gegevens.per_regel[naamregel][m[2].lower()] = m[1].lower()
-    if not gegevens.leeg:
+        elif naamregel and (m := LEESBAAR_RE.match(regel)) and m[1].lower() not in GEHEIM:
+            gegevens.leesbaar.setdefault(naamregel, []).append((m[1].strip().lower(), m[2]))
+    if gegevens.heeft_afdrukken:
         gegevens.sleutel_klopt = sleutel is not None and gezien_controle in (None, controle(sleutel))
     return gegevens
 
@@ -204,25 +244,40 @@ POSTCODE_KANDIDAAT_RE = re.compile(r"(?<![\w])([1-9]\d{3}[ ]?[A-Z]{2})(?![\w])(?
 
 
 class FamilieIndex:
-    """Zoekt BSN's, geboortedata en adressen van familieleden in tekst."""
+    """Zoekt BSN's, geboortedata, adressen, telefoonnummers, e-mailadressen, kentekens en
+    eigen termen van familieleden in tekst."""
 
-    def __init__(self, gegevens: Familiegegevens, sleutel: bytes, personen: list[an.Persoon],
+    def __init__(self, gegevens: Familiegegevens, sleutel: bytes | None, personen: list[an.Persoon],
                  extra_namen: list[str]):
         self.sleutel = sleutel
         self.afdrukken: dict[str, tuple[str, str]] = {}   # afdruk -> (soort, naam)
+        # Leesbare gegevens, genormaliseerd: (soort, waarde) -> (label, naam)
+        self.leesbaar: dict[tuple[str, str], tuple[str, str]] = {}
+        self.max_woorden = 0
         for p in personen:
             if p.positie[0] != -1 or not p.label:
                 continue
-            regel = extra_namen[p.positie[1]].strip()
-            for afdruk, soort in gegevens.per_regel.get(regel, {}).items():
-                self.afdrukken[afdruk] = (soort, p.label)
+            regel = naam_sleutel(extra_namen[p.positie[1]])
+            if sleutel:
+                for afdruk, soort in gegevens.per_regel.get(regel, {}).items():
+                    self.afdrukken[afdruk] = (soort, p.label)
+            for label, waarde in gegevens.leesbaar.get(regel, []):
+                soort = LABELS.get(label, "term")
+                norm = {"telefoon": norm_telefoon, "e-mail": str.lower, "kenteken": norm_kenteken}.get(
+                    soort, norm_term)(waarde.strip())
+                if norm:
+                    self.leesbaar[(soort, norm)] = (soort if soort != "term" else label, p.label)
+                    if soort == "term":
+                        self.max_woorden = max(self.max_woorden, len(norm.split()))
 
     def _zoek(self, soort: str, waarde: str) -> str | None:
+        if not self.sleutel:
+            return None
         gevonden = self.afdrukken.get(vingerafdruk(self.sleutel, soort, waarde))
         return gevonden[1] if gevonden else None
 
     def vind(self, tekst: str) -> list[an.Vondst]:
-        if not self.afdrukken:
+        if not self.afdrukken and not self.leesbaar:
             return []
         uit = []
         for m in BSN_KANDIDAAT_RE.finditer(tekst):
@@ -250,12 +305,37 @@ class FamilieIndex:
                     uit.append(an.Vondst(regelbegin + woorden[-k].start(), m.end(), "adres",
                                          f"[adres {naam}]", 10))
                     break
+        if not self.leesbaar:
+            return uit
+        def leesbaar(soort, waarde):
+            return self.leesbaar.get((soort, waarde))
+
+        for m in an.TELEFOON_RE.finditer(tekst):
+            if g := leesbaar("telefoon", norm_telefoon(m[0])):
+                uit.append(an.Vondst(m.start(), m.end(), "telefoon", f"[telefoon {g[1]}]", 12))
+        for m in an.EMAIL_RE.finditer(tekst):
+            if g := leesbaar("e-mail", m[0].lower()):
+                uit.append(an.Vondst(m.start(), m.end(), "email", f"[e-mail {g[1]}]", 12))
+        for m in re.finditer(r"(?<![\w-])[A-Za-z0-9]{1,3}(?:-?[A-Za-z0-9]{1,3}){1,2}(?![\w-])", tekst):
+            if len(norm_kenteken(m[0])) == 6 and (g := leesbaar("kenteken", norm_kenteken(m[0]))):
+                uit.append(an.Vondst(m.start(), m.end(), "kenteken", f"[kenteken {g[1]}]", 12))
+        # Eigen termen ("Basisschool De Regenboog"): reeksen woorden proberen, langste eerst,
+        # niet over een witregel heen.
+        woorden = list(re.finditer(r"\w+", tekst))
+        for i in range(len(woorden)):
+            for k in range(min(self.max_woorden, len(woorden) - i), 0, -1):
+                stuk = woorden[i:i + k]
+                if any(tekst[a.end():b.start()].count("\n") > 1 for a, b in zip(stuk, stuk[1:])):
+                    continue
+                if g := leesbaar("term", " ".join(w[0].lower() for w in stuk)):
+                    uit.append(an.Vondst(stuk[0].start(), stuk[-1].end(), "overig", f"[{g[0]} {g[1]}]", 12))
+                    break
         return uit
 
 
 def maak_index(gegevens: Familiegegevens | None, sleutel: bytes | None, personen: list[an.Persoon],
                extra_namen: list[str]) -> FamilieIndex | None:
-    if not gegevens or gegevens.leeg or not sleutel:
+    if not gegevens or gegevens.leeg:
         return None
     return FamilieIndex(gegevens, sleutel, personen, extra_namen)
 
@@ -292,7 +372,8 @@ def _datum_iso(tekst: str) -> str | None:
 
 def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD,
                          sleutelhanger=SYSTEEM) -> str | None:
-    """Vraag naam, roepnaam, BSN, geboortedatum en adres(sen) en schrijf vingerafdrukken weg."""
+    """Vraag naam, roepnaam, BSN, geboortedatum, adres(sen), telefoon, e-mail, kenteken en eigen
+    termen, en schrijf vingerafdrukken weg."""
     sleutel = geheime_sleutel(maak=True, pad=sleutelpad, sleutelhanger=sleutelhanger)
     print("Familielid toevoegen. De gegevens worden alleen als vingerafdruk opgeslagen.\n"
           "Enter zonder iets in te vullen = overslaan.\n")
@@ -323,6 +404,26 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
             afdrukken.append((soort, vingerafdruk(sleutel, soort, waarde), uitleg[waarde.split(":")[0]]))
         nummer += 1
 
+    # Deze gegevens worden leesbaar opgeslagen (geen vingerafdruk).
+    leesbare: list[tuple[str, str]] = []
+
+    def lijst(vraag: str, label: str, controleer, fout: str):
+        while waarde := _vraag(invoer, vraag, controleer, fout):
+            leesbare.append((label, waarde))
+
+    lijst("  Telefoonnummer (Enter = klaar): ", "telefoon",
+          lambda a: len(norm_telefoon(a)) >= 10, "Dat lijkt geen volledig telefoonnummer.")
+    lijst("  E-mailadres (Enter = klaar): ", "e-mail",
+          lambda a: an.EMAIL_RE.fullmatch(a.strip()), "Dat lijkt geen e-mailadres.")
+    lijst("  Kenteken (Enter = klaar): ", "kenteken",
+          lambda a: len(norm_kenteken(a)) == 6, "Een Nederlands kenteken heeft 6 letters/cijfers, bijv. 12-ABC-3.")
+    print("  Overige termen die naar deze persoon verwijzen, zoals werkgever, school of huisarts.")
+    while term := _vraag(invoer, "    Term (Enter = klaar): "):
+        label = _vraag(invoer, "    Label (bijv. werkgever): ",
+                       lambda a: re.fullmatch(r"[^\W\d_][\w -]{0,29}", a) and a.lower() not in GEHEIM,
+                       "Gebruik letters, cijfers, spaties en '-' (max. 30 tekens), niet bsn/adres.") or "term"
+        leesbare.append((label, term))
+
     regels = []
     bestaand = pad.read_text(encoding="utf-8") if pad.is_file() else ""
     if not CONTROLE_RE.search(bestaand):
@@ -330,10 +431,12 @@ def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD
     regels.append(f"{naam} = {roepnaam}" if roepnaam else naam)
     for soort, afdruk, uitleg in afdrukken:
         regels.append(f"    {soort}: {afdruk}" + (f"   # {uitleg}" if uitleg else ""))
+    regels += [f"    {label}: {waarde}" for label, waarde in leesbare]
     with pad.open("a", encoding="utf-8") as f:
         if bestaand and not bestaand.endswith("\n"):
             f.write("\n")
         f.write(("\n" if bestaand else "") + "\n".join(regels) + "\n")
     label = roepnaam or naam.split()[0]
-    print(f"\n  Opgeslagen in {pad}. Voortaan: [BSN {label}], [adres {label}].")
+    print(f"\n  Opgeslagen in {pad}. Voortaan bijv. [BSN {label}], [adres {label}], [telefoon {label}].\n"
+          f"  Later iets aanvullen? Voer dezelfde naam opnieuw in; de gegevens worden samengevoegd.")
     return label

@@ -1,0 +1,7 @@
+# Nooit persoonsgegevens in git zetten
+*.pdf
+geanonimiseerd/
+sleutel_*.json
+namen.txt
+__pycache__/
+.pytest_cache/

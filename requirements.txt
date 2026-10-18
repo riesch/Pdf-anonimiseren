@@ -1,0 +1,2 @@
+pymupdf>=1.24
+spacy>=3.7      # optioneel, voor betere naamherkenning (+ model nl_core_news_md)

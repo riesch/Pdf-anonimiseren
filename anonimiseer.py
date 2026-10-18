@@ -30,6 +30,12 @@ Gebruik:
 
 from __future__ import annotations
 
+import sys
+
+if sys.version_info < (3, 10):
+    sys.exit(f"Dit script heeft Python 3.10 of nieuwer nodig; je gebruikt {sys.version.split()[0]}.\n"
+             "Maak de omgeving opnieuw met een nieuwere Python, zie 'Installatie' in README.md.")
+
 import argparse
 import contextlib
 import io

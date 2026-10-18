@@ -185,7 +185,7 @@ def schrijf_rapport(pad: Path, bron: str, r: an.Resultaat, bevindingen: list[Bev
             per_soort.setdefault(b.soort, []).append(b)
         for soort, lijst in per_soort.items():
             regels.append(f"### {soort} ({len(lijst)})")
-            regels += [f"- {b.plek}: `{b.fragment}`" for b in lijst[:50]]
+            regels += [f"- {b.plek}" + (f": `{b.fragment}`" if b.fragment else "") for b in lijst[:50]]
             if len(lijst) > 50:
                 regels.append(f"- … en nog {len(lijst) - 50}")
             regels.append("")
@@ -205,6 +205,9 @@ def afronden(r: an.Resultaat, bron: Path, uitmap: Path, bevindingen: list[Bevind
     # Eerdere controles (bijv. gegevens die in de PDF bleven staan) tellen ook als lek.
     bevindingen = [Bevinding("lek", f"{soort} stond nog in de PDF",
                              f"pagina {pagina}" if pagina else "", "") for pagina, soort in r.lekken] + bevindingen
+    if getattr(r, "ocr", None):
+        bevindingen.append(Bevinding("verdacht", "pagina gelezen met OCR (tekstherkenning kan fouten maken; "
+                                     "kijk namen en nummers extra na)", f"pagina('s) {', '.join(map(str, r.ocr))}", ""))
     if r.scans and r.pdf:
         bevindingen.append(Bevinding("lek", "gescande pagina niet geanonimiseerd",
                                      f"pagina('s) {', '.join(map(str, r.scans))}", ""))

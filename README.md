@@ -191,6 +191,32 @@ Staat de rekeninghouder alleen als `HR J JANSEN` in het afschrift, maar ergens a
 Bij een ZIP worden alle afschriften samen bekeken, zodat dezelfde persoon of rekening overal
 hetzelfde label krijgt.
 
+## Gescande PDF's en tabellen
+
+**Scans.** Een pagina die alleen uit een afbeelding bestaat (een scan zonder tekstherkenning)
+wordt automatisch met OCR gelezen, in het Nederlands en Engels. Daarna wordt hij net zo
+geanonimiseerd als een digitale pagina: de gegevens worden in de afbeelding zelf
+weggepoetst en vervangen door het label. Ter controle wordt de geanonimiseerde pagina nog een
+keer met OCR gelezen. Tekstherkenning kan fouten maken, bijvoorbeeld bij een slechte scan of
+handschrift; het controlerapport noemt daarom elke OCR-pagina om extra goed na te kijken.
+
+Hiervoor is het gratis programma **Tesseract** nodig (zie Installatie). Zonder Tesseract, of met
+`--geen-ocr`, worden scanpagina's niet geanonimiseerd en krijgt het bestand `_CONTROLEREN`.
+
+**Tabellen.** Tabellen met lijnen in digitale PDF's (loonstroken, jaaropgaven, overzichten)
+komen als echte Markdown-tabel in het `.md`-bestand, zodat een AI weet welk getal in welke
+kolom staat:
+
+```
+| Naam | Geboortedatum | BSN |
+|---|---|---|
+| Richard | 1980 | [BSN] |
+```
+
+Een kolom met kop *Naam*, *Achternaam* of *Voornamen* wordt als naam behandeld en een kolom met
+kop *Geboren* of *Geboortedatum* als geboortedatum, ook al staat dat woord niet vlak voor elke
+cel. Tabellen zonder lijnen en tabellen in scans blijven gewone tekst.
+
 ## Controle na het anonimiseren
 
 Na het anonimiseren kijkt het script de **uitvoer** nog eens na.
@@ -230,6 +256,14 @@ pip install -r requirements.txt
 python -m spacy download nl_core_news_md   # optioneel, maar aanbevolen
 ```
 
+Voor gescande PDF's ook Tesseract (met Nederlands):
+
+| Systeem | Installeren |
+|---|---|
+| macOS | `brew install tesseract tesseract-lang` (met [Homebrew](https://brew.sh)) |
+| Windows | installatieprogramma van [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki); vink *Dutch* aan bij de talen |
+| Linux | `sudo apt install tesseract-ocr tesseract-ocr-nld` |
+
 ## Gebruik
 
 ```bash
@@ -252,6 +286,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |
 | `--zonder-afbeeldingen` | foto's, handtekeningen en logo's uit de PDF halen |
+| `--geen-ocr` | gescande pagina's niet met OCR lezen |
 | `--geen-rapport` | geen controlerapport schrijven (lekcheck en `_CONTROLEREN` blijven werken) |
 | `--behoud behoud.txt` | woorden die juist **niet** vervangen mogen worden (bijv. een bedrijfsnaam die als naam wordt gezien) |
 | `--alle-datums` | vervang álle datums door het jaartal, niet alleen geboortedata |
@@ -277,8 +312,9 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
 
 ## Beperkingen – controleer altijd zelf!
 
-* **Gescande PDF's** (afbeeldingen zonder tekst) worden niet geanonimiseerd; het script
-  waarschuwt hiervoor. Laat zo'n bestand eerst door OCR halen.
+* **Gescande PDF's** worden met OCR gelezen (als Tesseract geïnstalleerd is). OCR kan
+  letters verkeerd lezen; een verkeerd gelezen naam wordt dan niet herkend. Kijk OCR-pagina's
+  daarom extra goed na.
 * Naamherkenning is nooit 100%: ongebruikelijke namen of namen in HOOFDLETTERS zonder
   titel/veld kunnen gemist worden. Gebruik `--namen` voor de namen die er echt toe doen.
 * Een datum zonder geboorte-aanduiding in de buurt (bijvoorbeeld in een tabel) blijft staan;

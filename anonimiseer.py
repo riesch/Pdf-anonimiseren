@@ -31,6 +31,8 @@ Gebruik:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import re
 import sys
@@ -568,7 +570,8 @@ class NaamHerkenner:
             return False
         return all(len(d) >= 2 and not any(c.isdigit() for c in d) for d in delen)
 
-    def vermeldingen(self, paginas: list[str], labels: bool = True) -> list[Vermelding]:
+    def vermeldingen(self, paginas: list[str], labels: bool = True,
+                     tabelnamen: list[list[tuple[str, int, str | None]]] | None = None) -> list[Vermelding]:
         uit: list[Vermelding] = []
 
         def voeg_toe(tekst, pos, hint=None):
@@ -596,6 +599,8 @@ class NaamHerkenner:
                 for ent in self.nlp(tekst).ents:
                     if ent.label_ in ("PERSON", "PER"):
                         voeg_toe(ent.text, (p, ent.start_char))
+            for naam, start, hint in (tabelnamen[p] if tabelnamen else ()):
+                voeg_toe(naam, (p, start), hint)
         return uit
 
 
@@ -862,16 +867,24 @@ def vind_namen(tekst: str, patronen: list[tuple[re.Pattern, str | None]]) -> lis
 # ---------------------------------------------------------------------------
 
 @dataclass
+class Tabel:
+    bbox: fitz.Rect
+    rijen: list[list[fitz.Rect | None]]          # per rij de cellen (None = samengevoegde cel)
+
+
+@dataclass
 class PaginaTekst:
     tekst: str
     vakken: list[tuple[fitz.Rect, int] | None]   # per teken: (rechthoek, regel-id)
+    tabellen: list[Tabel] = field(default_factory=list)
+    ocr: bool = False                            # tekst komt uit tekstherkenning (scan)
 
 
-def lees_pagina(page: fitz.Page) -> PaginaTekst:
+def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
     tekens: list[str] = []
     vakken: list[tuple[fitz.Rect, int] | None] = []
     vlaggen = fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_MEDIABOX_CLIP
-    raw = page.get_text("rawdict", flags=vlaggen, sort=True)
+    raw = page.get_text("rawdict", flags=vlaggen, sort=True, textpage=textpage)
     regel_id = 0
     for blok in raw["blocks"]:
         if blok.get("type") != 0:
@@ -887,6 +900,155 @@ def lees_pagina(page: fitz.Page) -> PaginaTekst:
         tekens.append("\n")
         vakken.append(None)
     return PaginaTekst("".join(tekens), vakken)
+
+
+def ocr_talen() -> str | None:
+    """Talen voor tekstherkenning ("nld+eng"), of None als Tesseract niet geïnstalleerd is."""
+    try:
+        map_ = fitz.get_tessdata()
+    except Exception:
+        return None
+    if not map_:
+        return None
+    talen = [t for t in ("nld", "eng") if (Path(map_) / f"{t}.traineddata").is_file()]
+    return "+".join(talen) or None
+
+
+def lijkt_scan(page: fitz.Page, tekst: str) -> bool:
+    """Een pagina die (vrijwel) alleen uit een afbeelding bestaat."""
+    if len(tekst.strip()) >= 50:
+        return False
+    oppervlak = sum(abs(fitz.Rect(i["bbox"]) & page.rect) for i in page.get_image_info())
+    return oppervlak >= 0.5 * abs(page.rect) or (not tekst.strip() and oppervlak > 0)
+
+
+def zoek_tabellen(page: fitz.Page) -> list[Tabel]:
+    """Tabellen met lijnen (zoals op loonstroken en jaaropgaven)."""
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):   # PyMuPDF print soms een tip
+            gevonden = page.find_tables()
+    except Exception:
+        return []
+    return [Tabel(fitz.Rect(t.bbox), [[fitz.Rect(c) if c else None for c in rij.cells] for rij in t.rows])
+            for t in gevonden.tables if len(t.rows) >= 2]
+
+
+def _midden(r: fitz.Rect) -> fitz.Point:
+    return fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+
+
+def cel_tekens(pt: PaginaTekst, cel: fitz.Rect) -> list[int]:
+    return [i for i, vak in enumerate(pt.vakken) if vak and cel.contains(_midden(vak[0]))]
+
+
+def tabel_vondsten(pt: PaginaTekst) -> list[Vondst]:
+    """Datums in een tabelkolom met kop "Geboren"/"Geboortedatum" zijn geboortedata,
+    ook al staat het woord "geboren" niet vlak ervoor."""
+    uit = []
+    for tabel in pt.tabellen:
+        kop = tabel.rijen[0]
+        for k, kopcel in enumerate(kop):
+            koptekst = "".join(pt.tekst[i] for i in cel_tekens(pt, kopcel)) if kopcel else ""
+            m = GEBOORTE_RE.search(koptekst)
+            if not m:
+                continue
+            soort = "overlijdensdatum" if OVERLIJDEN_RE.match(m[0]) else "geboortedatum"
+            for rij in tabel.rijen[1:]:
+                if k >= len(rij) or rij[k] is None:
+                    continue
+                idx = cel_tekens(pt, rij[k])
+                tekst = "".join(pt.tekst[i] for i in idx)
+                for start, eind, jaar, _ in datum_kandidaten(tekst):
+                    uit.append(Vondst(idx[start], idx[eind - 1] + 1, soort, jaar, 6))
+    return uit
+
+
+NAAM_KOP_RE = re.compile(r"(?i)^\s*(naam|volledige naam|achternaam|geslachtsnaam|geboortenaam|voornamen|"
+                         r"voornaam|roepnaam|naam [a-zé]+)\s*$")
+
+
+def tabel_namen(pt: PaginaTekst) -> list[tuple[str, int, str | None]]:
+    """Cellen in een kolom met kop "Naam", "Achternaam", "Voornamen", ... als (naam, positie, hint)."""
+    uit = []
+    for tabel in pt.tabellen:
+        for k, kopcel in enumerate(tabel.rijen[0]):
+            koptekst = "".join(pt.tekst[i] for i in cel_tekens(pt, kopcel)) if kopcel else ""
+            if not (m := NAAM_KOP_RE.match(koptekst)):
+                continue
+            soort = m[1].lower()
+            hint = ("achternaam" if soort in ("achternaam", "geslachtsnaam", "geboortenaam")
+                    else "voornaam" if soort in ("voornamen", "voornaam", "roepnaam") else None)
+            for rij in tabel.rijen[1:]:
+                if k < len(rij) and rij[k] is not None and (idx := cel_tekens(pt, rij[k])):
+                    uit.append(("".join(pt.tekst[i] for i in idx), idx[0], hint))
+    return uit
+
+
+def pagina_markdown(pt: PaginaTekst, vondsten: list[Vondst]) -> str:
+    """De geanonimiseerde tekst van een pagina, met tabellen als Markdown-tabel.
+
+    Zonder tabellen is dit precies pas_toe(pt.tekst, vondsten).
+    """
+    vondst_van: list[int | None] = [None] * len(pt.tekst)
+    for k, v in enumerate(vondsten):
+        for i in range(v.start, v.eind):
+            vondst_van[i] = k
+    getoond: set[int] = set()
+
+    def teken(i: int) -> str:
+        k = vondst_van[i]
+        if k is None:
+            return pt.tekst[i]
+        if k in getoond:
+            return ""
+        getoond.add(k)
+        return vondsten[k].vervanging
+
+    if not pt.tabellen:
+        return "".join(teken(i) for i in range(len(pt.tekst)))
+
+    def cel(rect: fitz.Rect | None) -> str:
+        if rect is None:
+            return ""
+        delen, vorige = [], None
+        for i in cel_tekens(pt, rect):
+            if vorige is not None and pt.vakken[i][1] != vorige:
+                delen.append(" ")
+            vorige = pt.vakken[i][1]
+            delen.append(teken(i))
+        return re.sub(r"\s+", " ", "".join(delen)).strip().replace("|", "\\|")
+
+    def tabel_md(tabel: Tabel) -> str:
+        breedte = max(len(r) for r in tabel.rijen)
+        rijen = [[cel(c) for c in r] + [""] * (breedte - len(r)) for r in tabel.rijen]
+        regels = ["| " + " | ".join(rijen[0]) + " |", "|" + "---|" * breedte]
+        regels += ["| " + " | ".join(r) + " |" for r in rijen[1:]]
+        return "\n".join(regels)
+
+    # Welke tekstregels vallen in een tabel?
+    regel_vak: dict[int, fitz.Rect] = {}
+    for vak in pt.vakken:
+        if vak:
+            regel_vak[vak[1]] = regel_vak[vak[1]] | vak[0] if vak[1] in regel_vak else fitz.Rect(vak[0])
+    regel_tabel = {rid: t for rid, r in regel_vak.items()
+                   for t, tabel in enumerate(pt.tabellen) if tabel.bbox.contains(_midden(r))}
+
+    uit, gehad, in_tabel = [], set(), False
+    for i, ch in enumerate(pt.tekst):
+        vak = pt.vakken[i]
+        if vak is None:
+            if not in_tabel:
+                uit.append(ch)
+            continue
+        t = regel_tabel.get(vak[1])
+        in_tabel = t is not None
+        if in_tabel:
+            if t not in gehad:
+                gehad.add(t)
+                uit.append("\n" + tabel_md(pt.tabellen[t]) + "\n\n")
+            continue
+        uit.append(teken(i))
+    return "".join(uit)
 
 
 def _lettergrootte(rect: fitz.Rect, tekst: str) -> float:
@@ -909,6 +1071,9 @@ def redigeer_pagina(page: fitz.Page, pt: PaginaTekst, vondsten: list[Vondst]) ->
             else:
                 per_regel[rid] = fitz.Rect(rect)
         for i, rect in enumerate(per_regel.values()):
+            if pt.ocr:   # OCR-vakken zijn iets krapper dan de inkt op de scan
+                marge = rect.height * 0.25
+                rect = fitz.Rect(rect.x0 - 1.5, rect.y0 - marge, rect.x1 + 1.5, rect.y1 + marge)
             page.add_redact_annot(rect, fill=(1, 1, 1), cross_out=False)
             if i == 0:
                 labels.append((rect, v.vervanging))
@@ -963,15 +1128,19 @@ class Resultaat:
     rapport: Path | None = None          # controlerapport (zie controle.py)
     bevindingen: list = field(default_factory=list)
     gemarkeerd: bool = False             # lek gevonden: bestandsnaam bevat _CONTROLEREN
+    ocr: list[int] = field(default_factory=list)   # pagina's gelezen met tekstherkenning
+    tabellen: int = 0
 
 
 class Anonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
                  gebruik_ner: bool = True, alle_datums: bool = False, alleen_familie: bool = False,
                  vrager: Vrager | None = None, zonder_afbeeldingen: bool = False,
-                 familiegegevens=None, sleutel: bytes | None = None, rapport: bool = True):
+                 familiegegevens=None, sleutel: bytes | None = None, rapport: bool = True,
+                 ocr: bool = True):
         self.herkenner = NaamHerkenner(gebruik_ner, behoud or set(), namen or [])
         self.rapport = rapport
+        self.ocr_taal = ocr_talen() if ocr else None
         self.familiegegevens = familiegegevens   # familie.Familiegegevens (BSN/adres per familielid)
         self.sleutel = sleutel
         self.alle_datums = alle_datums
@@ -979,9 +1148,10 @@ class Anonimiseerder:
         self.vrager = vrager
         self.zonder_afbeeldingen = zonder_afbeeldingen
 
-    def analyseer(self, paginas: list[str], bron: str = "tekst"):
+    def analyseer(self, paginas: list[str], bron: str = "tekst", extra: list[list[Vondst]] | None = None,
+                  tabelnamen=None):
         """Vind alle vondsten per pagina (namen worden over het hele document gekoppeld)."""
-        vermeldingen = self.herkenner.vermeldingen(paginas)
+        vermeldingen = self.herkenner.vermeldingen(paginas, tabelnamen=tabelnamen)
         personen, families = koppel_personen(vermeldingen, self.alleen_familie)
         gevonden = zoek_voornamen(personen, paginas)
         if gevonden | bool(self.vrager and self.vrager.vul_aan(personen, bron)):
@@ -991,14 +1161,17 @@ class Anonimiseerder:
         register = Register()
         per_pagina, blijft = [], 0
         for tekst in paginas:
-            overig, b = vind_overig(tekst, register, self.alle_datums)
-            blijft += b
+            overig, _ = vind_overig(tekst, register, self.alle_datums)
             eigen = familie.vind(tekst) if familie else []
-            gekozen = kies_vondsten(overig + vind_namen(tekst, patronen) + eigen)
+            gekozen = kies_vondsten(overig + vind_namen(tekst, patronen) + eigen
+                                    + (extra[len(per_pagina)] if extra else []))
             if eigen:
                 from familie import verfijn
                 verfijn(gekozen, eigen)
             per_pagina.append(gekozen)
+            # Datums die door geen enkele vondst (geboorte, tabelkolom, familie) zijn vervangen.
+            blijft += sum(1 for start, eind, _, _ in datum_kandidaten(tekst)
+                          if not any(v.start < eind and start < v.eind for v in gekozen))
         return per_pagina, personen, patronen, register, blijft, familie
 
     def familie_index(self, personen: list[Persoon]):
@@ -1018,12 +1191,26 @@ class Anonimiseerder:
         # zodat ook ingevulde formulieren geanonimiseerd worden.
         if hasattr(doc, "bake"):
             doc.bake(annots=True, widgets=True)
-        lezingen = [lees_pagina(p) for p in doc]
+        lezingen, scans, ocr_paginas = [], [], []
+        for nr, page in enumerate(doc, 1):
+            lezing = lees_pagina(page)
+            if lijkt_scan(page, lezing.tekst):
+                if self.ocr_taal:
+                    tp = page.get_textpage_ocr(language=self.ocr_taal, dpi=300, full=True)
+                    lezing = lees_pagina(page, tp)
+                    lezing.ocr = True
+                    ocr_paginas.append(nr)
+                else:
+                    scans.append(nr)
+            else:
+                lezing.tabellen = zoek_tabellen(page)
+            lezingen.append(lezing)
         paginas = [l.tekst for l in lezingen]
-        scans = [i + 1 for i, (p, l) in enumerate(zip(doc, lezingen))
-                 if not l.tekst.strip() and p.get_images()]
 
-        per_pagina, personen, patronen, register, blijft, familie = self.analyseer(paginas, invoer.name)
+        per_pagina, personen, patronen, register, blijft, familie = self.analyseer(
+            paginas, invoer.name, extra=[tabel_vondsten(l) for l in lezingen],
+            tabelnamen=[tabel_namen(l) for l in lezingen])
+        uitvoer = [pagina_markdown(l, vs) for l, vs in zip(lezingen, per_pagina)]
 
         # Ook de bestandsnaam kan namen bevatten.
         stam = anonieme_bestandsnaam(invoer.stem, patronen, register)
@@ -1039,8 +1226,8 @@ class Anonimiseerder:
         if maak_tekst:
             tekst_pad = uitmap / f"{stam}_anoniem.md"
             delen = [f"# {stam} (geanonimiseerd)\n"]
-            for i, (tekst, vs) in enumerate(zip(paginas, per_pagina), 1):
-                schoon = re.sub(r"\n{3,}", "\n\n", pas_toe(tekst, vs)).strip()
+            for i, tekst in enumerate(uitvoer, 1):
+                schoon = re.sub(r"\n{3,}", "\n\n", tekst).strip()
                 delen.append(f"## Pagina {i}\n\n{schoon}\n")
             tekst_pad.write_text("\n".join(delen), encoding="utf-8")
 
@@ -1054,18 +1241,18 @@ class Anonimiseerder:
             schoon_document(doc)
             pdf_pad = uitmap / f"{stam}_anoniem.pdf"
             doc.save(pdf_pad, garbage=4, deflate=True, clean=True)
-            lekken = controleer(pdf_pad, paginas, per_pagina)
+            lekken = controleer(pdf_pad, paginas, per_pagina, ocr_paginas, self.ocr_taal)
         doc.close()
 
         if sleutelbestand:
             schrijf_sleutel(sleutelbestand, personen, register)
 
         import controle
-        uitvoer = [(f"pagina {i}", pas_toe(tekst, vs)) for i, (tekst, vs) in enumerate(zip(paginas, per_pagina), 1)]
         bevindingen = controle.controleer_uitvoer(
-            uitvoer, personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
+            [(f"pagina {i}", t) for i, t in enumerate(uitvoer, 1)], personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
             namen_verdacht=not self.alleen_familie, datums_verdacht=not self.alle_datums)
-        r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken)
+        r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken, ocr=ocr_paginas,
+                      tabellen=sum(len(l.tabellen) for l in lezingen))
         return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
 
@@ -1086,12 +1273,19 @@ def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> N
     pad.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]) -> list[tuple[int, str]]:
-    """Kijk of gevonden gegevens nog letterlijk in de nieuwe PDF staan."""
+def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]],
+               ocr_paginas: list[int] = (), ocr_taal: str | None = None) -> list[tuple[int, str]]:
+    """Kijk of gevonden gegevens nog letterlijk in de nieuwe PDF staan.
+
+    Een gescande pagina wordt daarvoor opnieuw met OCR gelezen: de gegevens zitten
+    daar in de afbeelding, niet in de tekst.
+    """
     lekken = []
     with fitz.open(pdf_pad) as doc:
         for i, (page, tekst, vs) in enumerate(zip(doc, paginas, per_pagina), 1):
-            nieuw = re.sub(r"\s+", " ", page.get_text())
+            tp = page.get_textpage_ocr(language=ocr_taal, dpi=300, full=True) \
+                if i in ocr_paginas and ocr_taal else None
+            nieuw = re.sub(r"\s+", " ", page.get_text(textpage=tp))
             for v in vs:
                 origineel = re.sub(r"\s+", " ", tekst[v.start:v.eind]).strip()
                 if v.soort in ("datum", "geboortedatum", "overlijdensdatum", "behouden") or len(origineel) < 3:
@@ -1144,6 +1338,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="niet om ontbrekende voornamen vragen")
     ap.add_argument("--zonder-afbeeldingen", action="store_true",
                     help="haal ook foto's, handtekeningen en logo's uit de PDF")
+    ap.add_argument("--geen-ocr", action="store_true",
+                    help="gescande pagina's niet met tekstherkenning (OCR) lezen")
     ap.add_argument("--geen-rapport", action="store_true",
                     help="geen controlerapport schrijven (de lekcheck en _CONTROLEREN blijven werken)")
     ap.add_argument("--behoud", type=Path,
@@ -1232,7 +1428,7 @@ def main(argv: list[str] | None = None) -> int:
                                               alle_datums=args.alle_datums, alleen_familie=bool(familie),
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
                                               familiegegevens=gegevens, sleutel=sleutel,
-                                              rapport=not args.geen_rapport)
+                                              rapport=not args.geen_rapport, ocr=not args.geen_ocr)
                 r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
@@ -1259,9 +1455,16 @@ def main(argv: list[str] | None = None) -> int:
         if r.datums_blijven:
             print(f"     ! {r.datums_blijven} datum(s) zonder geboorte-/overlijdenscontext niet aangepast "
                   "(gebruik --alle-datums om ook die te vervangen)")
+        if r.ocr:
+            print(f"     pagina('s) {', '.join(map(str, r.ocr))} gescand en gelezen met OCR "
+                  "(tekstherkenning): extra goed nakijken")
+        if r.tabellen:
+            print(f"     {r.tabellen} tabel(len) als Markdown-tabel overgenomen")
         if r.scans:
+            hoe = "Installeer Tesseract (zie README)" if args.geen_ocr is False and not ocr_talen() \
+                else "Zet OCR aan (zonder --geen-ocr)"
             print(f"     ! pagina('s) {', '.join(map(str, r.scans))} lijken gescand (geen tekst): "
-                  "NIET geanonimiseerd. Laat eerst OCR uitvoeren.")
+                  f"NIET geanonimiseerd. {hoe}.")
         lekken = sum(b.ernst == "lek" for b in r.bevindingen)
         verdacht = sum(b.ernst == "verdacht" for b in r.bevindingen)
         if r.gemarkeerd:

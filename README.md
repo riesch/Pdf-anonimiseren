@@ -191,6 +191,38 @@ Staat de rekeninghouder alleen als `HR J JANSEN` in het afschrift, maar ergens a
 Bij een ZIP worden alle afschriften samen bekeken, zodat dezelfde persoon of rekening overal
 hetzelfde label krijgt.
 
+## Controle na het anonimiseren
+
+Na het anonimiseren kijkt het script de **uitvoer** nog eens na.
+
+**Lekcheck.** Het zoekt naar gegevens van mensen uit je familie- of namenlijst die er niet meer
+in mogen staan: hun achternaam (ook in kleine letters, zoals `fam. jansen`), hun andere
+voornamen, en hun BSN, adres of geboortedatum. Ook gegevens die in de PDF bleven staan en
+gescande pagina's tellen als lek. Bij een lek krijgt het bestand `_CONTROLEREN` in de naam
+(`brief_anoniem_CONTROLEREN.md`), zodat je het niet per ongeluk deelt:
+
+```
+[1] brief.pdf: 1x geboortedatum, 3x naam
+     -> geanonimiseerd/brief_anoniem_CONTROLEREN.md
+     !! 1 lek(ken) gevonden: bestand gemarkeerd met _CONTROLEREN. NIET delen voordat je het rapport hebt bekeken.
+     ?  2 verdachte plek(ken) om even na te kijken
+     controlerapport: geanonimiseerd/controle/brief_controle.md
+```
+
+**Controlerapport.** Per bestand komt in `geanonimiseerd/controle/` een rapport met wat er is
+vervangen, de lekken en de *verdachte plekken*: dingen die een persoonsgegeven kúnnen zijn,
+elk met de regel eromheen en het verdachte stuk tussen `»…«`:
+
+- een naam na een titel (`dhr. Bakker`) of een naam die het taalmodel herkent (niet in familiemodus,
+  want daar blijven andere namen bewust staan);
+- de achternaam van een familielid als deel van een woord (`www.richardjansen.nl`), of in kleine
+  letters als die achternaam ook een gewoon woord is (`groot`, `bakker`);
+- een nummer van 9 cijfers (een BSN met een tikfout?), iets dat op een rekeningnummer lijkt;
+- een volledige datum (een geboortedatum zonder "geboren" ervoor?). Niet bij bankdata.
+
+Het rapport bevat alleen tekst uit de uitvoer, nooit de originele gegevens, maar deel het niet
+met een AI. Met `--geen-rapport` wordt het niet geschreven (de lekcheck blijft werken).
+
 ## Installatie
 
 ```bash
@@ -220,6 +252,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |
 | `--zonder-afbeeldingen` | foto's, handtekeningen en logo's uit de PDF halen |
+| `--geen-rapport` | geen controlerapport schrijven (lekcheck en `_CONTROLEREN` blijven werken) |
 | `--behoud behoud.txt` | woorden die juist **niet** vervangen mogen worden (bijv. een bedrijfsnaam die als naam wordt gezien) |
 | `--alle-datums` | vervang álle datums door het jaartal, niet alleen geboortedata |
 | `--geen-ner` | geen taalmodel gebruiken, alleen patronen en `--namen` |
@@ -240,7 +273,7 @@ PDF's en sleutelbestanden staan in `.gitignore`, zodat ze niet per ongeluk in gi
 3. BSN's worden herkend met de elfproef (of als ze na "BSN" staan), IBAN's met de
    controlesom; geboortedata aan woorden als "geboren", "geb." of "Geboortedatum".
 4. In de PDF wordt de originele tekst weggeredigeerd en vervangen door het label.
-   Daarna controleert het script of de gevonden gegevens niet meer in de nieuwe PDF staan.
+5. Daarna wordt de uitvoer gecontroleerd op lekken en verdachte plekken (zie hierboven).
 
 ## Beperkingen – controleer altijd zelf!
 

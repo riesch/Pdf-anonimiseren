@@ -210,7 +210,9 @@ def _is_rekening(waarde: str) -> bool:
 class BankAnonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
                  alle_tegenpartijen: bool = False, alleen_familie: bool = False,
-                 vrager: an.Vrager | None = None, familiegegevens=None, sleutel: bytes | None = None):
+                 vrager: an.Vrager | None = None, familiegegevens=None, sleutel: bytes | None = None,
+                 rapport: bool = True):
+        self.rapport = rapport
         self.herkenner = an.NaamHerkenner(False, behoud or set(), namen or [])
         self.familiegegevens = familiegegevens
         self.sleutel = sleutel
@@ -291,7 +293,7 @@ class BankAnonimiseerder:
             schrijver = csv.writer(f, delimiter=scheiding, lineterminator="\n",
                                    quoting=csv.QUOTE_ALL if alles_gequote else csv.QUOTE_MINIMAL)
             schrijver.writerows(uit)
-        return sessie.resultaat(uitpad, uitpad.read_text(encoding="utf-8"), sleutelbestand)
+        return sessie.resultaat(invoer, uitpad, [("", uitpad.read_text(encoding="utf-8"))], sleutelbestand)
 
 
 class Sessie:
@@ -372,11 +374,20 @@ class Sessie:
     def bestandsnaam(self, stam: str) -> str:
         return an.anonieme_bestandsnaam(stam, self.patronen, self.register)
 
-    def resultaat(self, uitpad: Path, uittekst: str, sleutelbestand: Path | None) -> an.Resultaat:
+    def resultaat(self, invoer: Path, uitpad: Path, uitvoer: list[tuple[str, str]],
+                  sleutelbestand: Path | None) -> an.Resultaat:
+        """uitvoer = [(plek, tekst)]: de geanonimiseerde tekst, bij een ZIP per afschrift."""
+        import controle
         if sleutelbestand:
             an.schrijf_sleutel(sleutelbestand, self.personen, self.register)
-        lekken = controleer_bank(uittekst, self.register, self.personen, self.anon.alleen_familie)
-        return an.Resultaat(None, uitpad, self.tellingen, 0, [], lekken)
+        alles = "\n".join(t for _, t in uitvoer)
+        lekken = controleer_bank(alles, self.register, self.personen, self.anon.alleen_familie)
+        # Datums blijven in bankdata bewust staan; die zijn dus niet verdacht.
+        bevindingen = controle.controleer_uitvoer(uitvoer, self.personen, self.familie, self.anon.behoud,
+                                                  namen_verdacht=not self.anon.alleen_familie,
+                                                  datums_verdacht=False)
+        r = an.Resultaat(None, uitpad, self.tellingen, 0, [], lekken)
+        return controle.afronden(r, invoer, uitpad.parent, bevindingen, self.anon.rapport)
 
 
 def controleer_bank(tekst: str, register: an.Register, personen: list[an.Persoon],

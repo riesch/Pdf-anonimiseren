@@ -186,17 +186,17 @@ class CamtAnonimiseerder(BankAnonimiseerder):
         stam = sessie.bestandsnaam(invoer.stem)
         if invoer.suffix.lower() == ".zip":
             uitpad = uitmap / f"{stam}_anoniem.zip"
-            delen = []
+            uitvoer = []
             with zipfile.ZipFile(uitpad, "w", zipfile.ZIP_DEFLATED) as z:
                 for b in bomen:
                     data = b.naar_bytes()
                     naam = Path(b.naam)
-                    z.writestr(f"{sessie.bestandsnaam(naam.stem)}{naam.suffix}", data)
-                    delen.append(data.decode("utf-8"))
-            uittekst = "\n".join(delen)
+                    lid = f"{sessie.bestandsnaam(naam.stem)}{naam.suffix}"
+                    z.writestr(lid, data)
+                    uitvoer.append((lid, data.decode("utf-8")))
         else:
             uitpad = uitmap / f"{stam}_anoniem.xml"
             data = bomen[0].naar_bytes()
             uitpad.write_bytes(data)
-            uittekst = data.decode("utf-8")
-        return sessie.resultaat(uitpad, uittekst, sleutelbestand)
+            uitvoer = [("", data.decode("utf-8"))]
+        return sessie.resultaat(invoer, uitpad, uitvoer, sleutelbestand)

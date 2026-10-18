@@ -960,14 +960,18 @@ class Resultaat:
     datums_blijven: int
     scans: list[int]
     lekken: list[tuple[int, str]]
+    rapport: Path | None = None          # controlerapport (zie controle.py)
+    bevindingen: list = field(default_factory=list)
+    gemarkeerd: bool = False             # lek gevonden: bestandsnaam bevat _CONTROLEREN
 
 
 class Anonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
                  gebruik_ner: bool = True, alle_datums: bool = False, alleen_familie: bool = False,
                  vrager: Vrager | None = None, zonder_afbeeldingen: bool = False,
-                 familiegegevens=None, sleutel: bytes | None = None):
+                 familiegegevens=None, sleutel: bytes | None = None, rapport: bool = True):
         self.herkenner = NaamHerkenner(gebruik_ner, behoud or set(), namen or [])
+        self.rapport = rapport
         self.familiegegevens = familiegegevens   # familie.Familiegegevens (BSN/adres per familielid)
         self.sleutel = sleutel
         self.alle_datums = alle_datums
@@ -995,7 +999,7 @@ class Anonimiseerder:
                 from familie import verfijn
                 verfijn(gekozen, eigen)
             per_pagina.append(gekozen)
-        return per_pagina, personen, patronen, register, blijft
+        return per_pagina, personen, patronen, register, blijft, familie
 
     def familie_index(self, personen: list[Persoon]):
         from familie import maak_index
@@ -1019,7 +1023,7 @@ class Anonimiseerder:
         scans = [i + 1 for i, (p, l) in enumerate(zip(doc, lezingen))
                  if not l.tekst.strip() and p.get_images()]
 
-        per_pagina, personen, patronen, register, blijft = self.analyseer(paginas, invoer.name)
+        per_pagina, personen, patronen, register, blijft, familie = self.analyseer(paginas, invoer.name)
 
         # Ook de bestandsnaam kan namen bevatten.
         stam = anonieme_bestandsnaam(invoer.stem, patronen, register)
@@ -1056,7 +1060,13 @@ class Anonimiseerder:
         if sleutelbestand:
             schrijf_sleutel(sleutelbestand, personen, register)
 
-        return Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken)
+        import controle
+        uitvoer = [(f"pagina {i}", pas_toe(tekst, vs)) for i, (tekst, vs) in enumerate(zip(paginas, per_pagina), 1)]
+        bevindingen = controle.controleer_uitvoer(
+            uitvoer, personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
+            namen_verdacht=not self.alleen_familie, datums_verdacht=not self.alle_datums)
+        r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken)
+        return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
 
 def anonieme_bestandsnaam(stam: str, patronen, register: Register) -> str:
@@ -1134,6 +1144,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="niet om ontbrekende voornamen vragen")
     ap.add_argument("--zonder-afbeeldingen", action="store_true",
                     help="haal ook foto's, handtekeningen en logo's uit de PDF")
+    ap.add_argument("--geen-rapport", action="store_true",
+                    help="geen controlerapport schrijven (de lekcheck en _CONTROLEREN blijven werken)")
     ap.add_argument("--behoud", type=Path,
                     help="tekstbestand met woorden/namen die NIET vervangen mogen worden (één per regel)")
     ap.add_argument("--alle-datums", action="store_true",
@@ -1219,18 +1231,21 @@ def main(argv: list[str] | None = None) -> int:
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
                                               alle_datums=args.alle_datums, alleen_familie=bool(familie),
                                               vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
-                                              familiegegevens=gegevens, sleutel=sleutel)
+                                              familiegegevens=gegevens, sleutel=sleutel,
+                                              rapport=not args.geen_rapport)
                 r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
                 camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
-                                                  familiegegevens=gegevens, sleutel=sleutel)
+                                                  familiegegevens=gegevens, sleutel=sleutel,
+                                                  rapport=not args.geen_rapport)
                 r = camt.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
             else:
                 bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
                                                   alleen_familie=bool(familie), vrager=vrager,
-                                                  familiegegevens=gegevens, sleutel=sleutel)
+                                                  familiegegevens=gegevens, sleutel=sleutel,
+                                                  rapport=not args.geen_rapport)
                 r = bank.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)
@@ -1247,9 +1262,15 @@ def main(argv: list[str] | None = None) -> int:
         if r.scans:
             print(f"     ! pagina('s) {', '.join(map(str, r.scans))} lijken gescand (geen tekst): "
                   "NIET geanonimiseerd. Laat eerst OCR uitvoeren.")
-        for pagina, soort in r.lekken:
-            waar = f"pagina {pagina}: " if pagina else ""
-            print(f"     ! {waar}een {soort} staat mogelijk nog in het bestand, controleer handmatig")
+        lekken = sum(b.ernst == "lek" for b in r.bevindingen)
+        verdacht = sum(b.ernst == "verdacht" for b in r.bevindingen)
+        if r.gemarkeerd:
+            print(f"     !! {lekken} lek(ken) gevonden: bestand gemarkeerd met _CONTROLEREN. NIET delen "
+                  "voordat je het rapport hebt bekeken.")
+        if verdacht:
+            print(f"     ?  {verdacht} verdachte plek(ken) om even na te kijken")
+        if r.rapport:
+            print(f"     controlerapport: {r.rapport}")
         if sleutel:
             print(f"     sleutel: {sleutel} (bevat persoonsgegevens, niet delen!)")
     print("\nControleer het resultaat altijd zelf voordat je het met een AI deelt.")

@@ -77,3 +77,39 @@ def test_scan_zonder_ocr_is_lek(tmp_path):
     _scan_pdf(bron, "Naam: Richard Jansen")
     r = an.Anonimiseerder(gebruik_ner=False, ocr=False).verwerk(bron, tmp_path / "uit")
     assert r.scans == [1] and r.gemarkeerd and "_CONTROLEREN" in r.pdf.name
+
+
+def _brief_met_scan(pad):
+    """Digitale brief met een ingevoegde scan (zoals een kopie van een identiteitsbewijs)."""
+    bron = pymupdf.open()
+    bron.new_page().insert_text((50, 80), "Naam: Richard Jansen\nBSN: 111222333", fontsize=14)
+    pix = bron[0].get_pixmap(dpi=150, clip=pymupdf.Rect(40, 60, 300, 120))
+    doc = pymupdf.open()
+    pagina = doc.new_page()
+    pagina.insert_text((50, 60), "Hierbij de gevraagde kopie van het identiteitsbewijs.", fontsize=10)
+    pagina.insert_image(pymupdf.Rect(50, 100, 350, 175), pixmap=pix)
+    doc.save(pad)
+
+
+@ocr_nodig
+def test_ingevoegde_scan_wordt_gelezen(tmp_path):
+    bron = tmp_path / "brief.pdf"
+    _brief_met_scan(bron)
+    r = an.Anonimiseerder(gebruik_ner=False).verwerk(bron, tmp_path / "uit")
+    tekst = r.tekst.read_text(encoding="utf-8")
+    assert "Hierbij de gevraagde kopie" in tekst and "Naam: Richard" in tekst and "[BSN]" in tekst
+    assert "Jansen" not in tekst and "111222333" not in tekst and r.ocr == [1] and not r.gemarkeerd
+
+
+def test_ingevoegde_scan_zonder_ocr_is_lek(tmp_path):
+    bron = tmp_path / "brief.pdf"
+    _brief_met_scan(bron)
+    r = an.Anonimiseerder(gebruik_ner=False, ocr=False).verwerk(bron, tmp_path / "uit")
+    assert r.gemarkeerd and any("afbeelding" in b.soort and b.ernst == "lek" for b in r.bevindingen)
+
+
+def test_ingevoegde_scan_met_zonder_afbeeldingen_geen_lek(tmp_path):
+    bron = tmp_path / "brief.pdf"
+    _brief_met_scan(bron)
+    r = an.Anonimiseerder(gebruik_ner=False, ocr=False, zonder_afbeeldingen=True).verwerk(bron, tmp_path / "uit")
+    assert not r.gemarkeerd

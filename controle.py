@@ -219,6 +219,11 @@ def afronden(r: an.Resultaat, bron: Path, uitmap: Path, bevindingen: list[Bevind
     if getattr(r, "ocr", None):
         bevindingen.append(Bevinding("verdacht", "pagina gelezen met OCR (tekstherkenning kan fouten maken; "
                                      "kijk namen en nummers extra na)", f"pagina('s) {', '.join(map(str, r.ocr))}", ""))
+    # Afbeeldingen op digitale pagina's die niet gelezen konden worden (geen Tesseract of
+    # --geen-ocr): daarin kan een scan met persoonsgegevens staan.
+    for pagina, aandeel in getattr(r, "afbeeldingen", []):
+        bevindingen.append(Bevinding("lek", f"afbeelding ({aandeel:.0%} van de pagina) niet gelezen; "
+                                            "kan een scan met persoonsgegevens zijn", f"pagina {pagina}", ""))
     if r.scans and r.pdf:
         bevindingen.append(Bevinding("lek", "gescande pagina niet geanonimiseerd",
                                      f"pagina('s) {', '.join(map(str, r.scans))}", ""))

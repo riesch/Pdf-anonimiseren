@@ -927,7 +927,8 @@ class PaginaTekst:
     tekst: str
     vakken: list[tuple[fitz.Rect, int] | None]   # per teken: (rechthoek, regel-id)
     tabellen: list[Tabel] = field(default_factory=list)
-    ocr: bool = False                            # tekst komt uit tekstherkenning (scan)
+    ocr: bool = False                            # hele pagina gelezen met tekstherkenning (scan)
+    ocr_regels: set[int] = field(default_factory=set)   # regels uit OCR van een afbeelding
 
 
 def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
@@ -936,11 +937,14 @@ def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
     vlaggen = fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_MEDIABOX_CLIP
     raw = page.get_text("rawdict", flags=vlaggen, sort=True, textpage=textpage)
     regel_id = 0
+    ocr_regels: set[int] = set()
     for blok in raw["blocks"]:
         if blok.get("type") != 0:
             continue
         for regel in blok["lines"]:
             for span in regel["spans"]:
+                if span.get("font", "").startswith("GlyphLess"):   # tekst uit OCR
+                    ocr_regels.add(regel_id)
                 for ch in span["chars"]:
                     tekens.append(ch["c"])
                     vakken.append((fitz.Rect(ch["bbox"]), regel_id))
@@ -949,7 +953,7 @@ def lees_pagina(page: fitz.Page, textpage=None) -> PaginaTekst:
             regel_id += 1
         tekens.append("\n")
         vakken.append(None)
-    return PaginaTekst("".join(tekens), vakken)
+    return PaginaTekst("".join(tekens), vakken, ocr_regels=ocr_regels)
 
 
 def ocr_talen() -> str | None:
@@ -970,6 +974,17 @@ def lijkt_scan(page: fitz.Page, tekst: str) -> bool:
         return False
     oppervlak = sum(abs(fitz.Rect(i["bbox"]) & page.rect) for i in page.get_image_info())
     return oppervlak >= 0.5 * abs(page.rect) or (not tekst.strip() and oppervlak > 0)
+
+
+def grote_afbeeldingen(page: fitz.Page) -> list[tuple[fitz.Rect, float]]:
+    """Afbeeldingen waarin tekst kan staan (bijv. een ingevoegde scan van een paspoort),
+    met hun aandeel van de pagina. Kleine logo's en iconen tellen niet mee."""
+    uit = []
+    for info in page.get_image_info():
+        r = fitz.Rect(info["bbox"]) & page.rect
+        if r.width >= 60 and r.height >= 30 and abs(r) >= 0.03 * abs(page.rect):
+            uit.append((r, abs(r) / abs(page.rect)))
+    return uit
 
 
 def zoek_tabellen(page: fitz.Page) -> list[Tabel]:
@@ -1121,7 +1136,7 @@ def redigeer_pagina(page: fitz.Page, pt: PaginaTekst, vondsten: list[Vondst]) ->
             else:
                 per_regel[rid] = fitz.Rect(rect)
         for i, rect in enumerate(per_regel.values()):
-            if pt.ocr:   # OCR-vakken zijn iets krapper dan de inkt op de scan
+            if pt.ocr or rid in pt.ocr_regels:   # OCR-vakken zijn iets krapper dan de inkt
                 marge = rect.height * 0.25
                 rect = fitz.Rect(rect.x0 - 1.5, rect.y0 - marge, rect.x1 + 1.5, rect.y1 + marge)
             page.add_redact_annot(rect, fill=(1, 1, 1), cross_out=False)
@@ -1180,6 +1195,7 @@ class Resultaat:
     gemarkeerd: bool = False             # lek gevonden: bestandsnaam bevat _CONTROLEREN
     ocr: list[int] = field(default_factory=list)   # pagina's gelezen met tekstherkenning
     tabellen: int = 0
+    afbeeldingen: list[tuple[int, float]] = field(default_factory=list)   # (pagina, aandeel) niet gelezen
 
 
 class Anonimiseerder:
@@ -1241,7 +1257,7 @@ class Anonimiseerder:
         # zodat ook ingevulde formulieren geanonimiseerd worden.
         if hasattr(doc, "bake"):
             doc.bake(annots=True, widgets=True)
-        lezingen, scans, ocr_paginas = [], [], []
+        lezingen, scans, ocr_paginas, afbeeldingen = [], [], [], []
         for nr, page in enumerate(doc, 1):
             lezing = lees_pagina(page)
             if lijkt_scan(page, lezing.tekst):
@@ -1253,7 +1269,19 @@ class Anonimiseerder:
                 else:
                     scans.append(nr)
             else:
-                lezing.tabellen = zoek_tabellen(page)
+                tabellen = zoek_tabellen(page)
+                if (groot := grote_afbeeldingen(page)) and not self.zonder_afbeeldingen:
+                    # Een digitale pagina met een ingevoegde scan: alleen de afbeeldingen
+                    # met OCR lezen en die tekst samenvoegen met de digitale tekst.
+                    if self.ocr_taal:
+                        tp = page.get_textpage_ocr(language=self.ocr_taal, dpi=300, full=False)
+                        met_ocr = lees_pagina(page, tp)
+                        if met_ocr.ocr_regels:
+                            lezing = met_ocr
+                            ocr_paginas.append(nr)
+                    else:
+                        afbeeldingen.append((nr, max(aandeel for _, aandeel in groot)))
+                lezing.tabellen = tabellen
             lezingen.append(lezing)
         paginas = [l.tekst for l in lezingen]
 
@@ -1302,7 +1330,7 @@ class Anonimiseerder:
             [("bestandsnaam", stam)] + [(f"pagina {i}", t) for i, t in enumerate(uitvoer, 1)], personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
             namen_verdacht=not self.alleen_familie, datums_verdacht=not self.alle_datums)
         r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken, ocr=ocr_paginas,
-                      tabellen=sum(len(l.tabellen) for l in lezingen))
+                      tabellen=sum(len(l.tabellen) for l in lezingen), afbeeldingen=afbeeldingen)
         return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
 

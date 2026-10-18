@@ -7,6 +7,9 @@
 # Schrijf de naam zoals hij in documenten staat, liefst met alle voornamen.
 # Met "= roepnaam" erachter wordt die roepnaam gebruikt in plaats van de eerste voornaam.
 # Ken je alleen de initialen, dan vraagt het script om de voornaam en zet het antwoord hier.
+#
+# BSN, geboortedatum en adres voeg je toe met:  python anonimiseer.py --familie-toevoegen
+# Die komen als onleesbare vingerafdruk onder de naam te staan (ingesprongen regels).
 
 Johannes Petrus Maria Jansen = Hans
 Anna Wilhelmina de Vries

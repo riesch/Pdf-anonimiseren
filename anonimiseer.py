@@ -286,19 +286,20 @@ def _jaar(jj: str) -> str:
     return str(eeuw + int(jj))
 
 
-def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
-    """Geef vondsten voor datums terug, plus het aantal datums dat bleef staan."""
+def datum_kandidaten(tekst: str) -> list[tuple[int, int, str, str]]:
+    """Alle datums in de tekst als (start, eind, jaar, "JJJJ-MM-DD")."""
     kandidaten = []
     for m in DATUM_NUM_RE.finditer(tekst):
-        d, mnd, j = int(m[1]), int(m[2]), m[3]
+        d, mnd, j = int(m[1]), int(m[2]), _jaar(m[3])
         if 1 <= d <= 31 and 1 <= mnd <= 12:
-            kandidaten.append((m.start(), m.end(), _jaar(j)))
+            kandidaten.append((m.start(), m.end(), j, f"{j}-{mnd:02d}-{d:02d}"))
     for m in DATUM_ISO_RE.finditer(tekst):
         if 1 <= int(m[2]) <= 12 and 1 <= int(m[3]) <= 31:
-            kandidaten.append((m.start(), m.end(), m[1]))
+            kandidaten.append((m.start(), m.end(), m[1], f"{m[1]}-{int(m[2]):02d}-{int(m[3]):02d}"))
     for m in DATUM_TXT_RE.finditer(tekst):
         if 1 <= int(m[1]) <= 31:
-            kandidaten.append((m.start(), m.end(), m[3]))
+            mnd = MAANDEN[m[2].lower()]
+            kandidaten.append((m.start(), m.end(), m[3], f"{m[3]}-{mnd:02d}-{int(m[1]):02d}"))
     for m in DATUM_WOORD_RE.finditer(tekst):   # "twaalf maart negentienhonderdvijfentachtig"
         dag = woord_naar_getal(m[1])
         jaar_tekst, eind = m[3], m.end()
@@ -308,11 +309,15 @@ def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
             eind = m.start(3) + len(jaar_tekst)
             jaar = jaar_in_woorden(jaar_tekst)
         if dag and dag <= 31 and jaar:
-            kandidaten.append((m.start(), eind, str(jaar)))
-    kandidaten.sort()
+            mnd = MAANDEN[m[2].lower()]
+            kandidaten.append((m.start(), eind, str(jaar), f"{jaar}-{mnd:02d}-{dag:02d}"))
+    return sorted(kandidaten)
 
+
+def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
+    """Geef vondsten voor datums terug, plus het aantal datums dat bleef staan."""
     vondsten, blijft, vorige_eind = [], 0, 0
-    for start, eind, jaar in kandidaten:
+    for start, eind, jaar, _ in datum_kandidaten(tekst):
         if start < vorige_eind:
             continue
         venster = tekst[max(vorige_eind, start - 60):start]
@@ -551,9 +556,9 @@ class NaamHerkenner:
             if v and self._toegestaan(v):
                 uit.append(v)
 
-        for regel in self.extra_namen:
+        for i, regel in enumerate(self.extra_namen):
             naam, _, roepnaam = regel.partition("=")
-            v = ontleed_naam(naam, (-1, 0))
+            v = ontleed_naam(naam, (-1, i))
             if v and self._toegestaan(v):
                 v.roepnaam = roepnaam.strip() or None
                 uit.append(v)
@@ -940,8 +945,11 @@ class Resultaat:
 class Anonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
                  gebruik_ner: bool = True, alle_datums: bool = False, alleen_familie: bool = False,
-                 vrager: Vrager | None = None, zonder_afbeeldingen: bool = False):
+                 vrager: Vrager | None = None, zonder_afbeeldingen: bool = False,
+                 familiegegevens=None, sleutel: bytes | None = None):
         self.herkenner = NaamHerkenner(gebruik_ner, behoud or set(), namen or [])
+        self.familiegegevens = familiegegevens   # familie.Familiegegevens (BSN/adres per familielid)
+        self.sleutel = sleutel
         self.alle_datums = alle_datums
         self.alleen_familie = alleen_familie
         self.vrager = vrager
@@ -955,13 +963,23 @@ class Anonimiseerder:
         if gevonden | bool(self.vrager and self.vrager.vul_aan(personen, bron)):
             families = ken_labels_toe(personen, self.alleen_familie)
         patronen = naam_patronen(personen, families, vermeldingen)
+        familie = self.familie_index(personen)
         register = Register()
         per_pagina, blijft = [], 0
         for tekst in paginas:
             overig, b = vind_overig(tekst, register, self.alle_datums)
             blijft += b
-            per_pagina.append(kies_vondsten(overig + vind_namen(tekst, patronen)))
+            eigen = familie.vind(tekst) if familie else []
+            gekozen = kies_vondsten(overig + vind_namen(tekst, patronen) + eigen)
+            if eigen:
+                from familie import verfijn
+                verfijn(gekozen, eigen)
+            per_pagina.append(gekozen)
         return per_pagina, personen, patronen, register, blijft
+
+    def familie_index(self, personen: list[Persoon]):
+        from familie import maak_index
+        return maak_index(self.familiegegevens, self.sleutel, personen, self.herkenner.extra_namen)
 
     def anonimiseer_tekst(self, tekst: str) -> str:
         per_pagina, *_ = self.analyseer([tekst])
@@ -1059,17 +1077,19 @@ ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt", ".xml", ".zip"}
 
 
 def lees_lijst(pad: Path | None) -> list[str]:
+    """Eén waarde per regel; commentaar (#) en ingesprongen regels (gegevens bij een
+    familielid, zie familie.py) worden overgeslagen."""
     if not pad:
         return []
     return [r.strip() for r in pad.read_text(encoding="utf-8").splitlines()
-            if r.strip() and not r.lstrip().startswith("#")]
+            if r.strip() and not r.lstrip().startswith("#") and not r[:1].isspace()]
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Anonimiseer PDF's en bankexports (namen, BSN, adressen, geboortedata, "
                     "rekeningnummers) zodat ze aan een AI gegeven kunnen worden.")
-    ap.add_argument("invoer", nargs="+", type=Path,
+    ap.add_argument("invoer", nargs="*", type=Path,
                     help="PDF-bestand(en), bankexport(s) (.csv/.tsv/.txt), CAMT.053 (.xml/.zip) "
                          "of map(pen) daarmee")
     ap.add_argument("-o", "--uitvoer", type=Path, default=Path("geanonimiseerd"),
@@ -1080,6 +1100,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--familie", type=Path,
                     help="tekstbestand met je familie- en gezinsleden; ALLEEN deze namen worden "
                          "vervangen (standaard: familie.txt in de huidige map, als die bestaat)")
+    ap.add_argument("--familie-toevoegen", action="store_true",
+                    help="voeg met vragen een familielid toe (naam, roepnaam, BSN, geboortedatum, adres) "
+                         "aan familie.txt; BSN en adres worden daarna '[BSN Naam]' en '[adres Naam]'")
     ap.add_argument("--alle-namen", action="store_true",
                     help="vervang alle namen, ook als er een familie.txt is")
     ap.add_argument("--niet-vragen", action="store_true",
@@ -1100,6 +1123,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="schrijf ook een sleutelbestand (pseudoniem -> echte gegevens). "
                          "Bevat persoonsgegevens: deel dit nooit met een AI!")
     args = ap.parse_args(argv)
+
+    import familie as fam
+    if args.familie_toevoegen:
+        doel = args.familie or Path("familie.txt")
+        while fam.familielid_toevoegen(doel):
+            if input("\nNog iemand toevoegen? (j/n) ").strip().lower() not in ("j", "ja", "y"):
+                break
+        return 0
+    if not args.invoer:
+        ap.error("geef één of meer bestanden of mappen op (of gebruik --familie-toevoegen)")
 
     bestanden: list[Path] = []
     for pad in args.invoer:
@@ -1127,6 +1160,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Familielijst {familie}: alleen deze personen worden vervangen "
               "(--alle-namen om alle namen te vervangen).\n")
     namen = lees_lijst(args.namen) + lees_lijst(familie)
+    sleutel = fam.geheime_sleutel()
+    gegevens = fam.lees_familie(args.namen, sleutel)
+    gegevens.samenvoegen(fam.lees_familie(familie, sleutel))
+    if not gegevens.leeg and not gegevens.sleutel_klopt:
+        print(f"Let op: de BSN's/adressen in de familielijst zijn met een andere sleutel gemaakt dan "
+              f"{fam.SLEUTEL_PAD}; ze worden niet herkend. Voeg ze opnieuw toe met --familie-toevoegen.\n")
+        gegevens = None
     behoud = set(lees_lijst(args.behoud))
     vrager = None
     if not args.niet_vragen and sys.stdin.isatty():
@@ -1139,16 +1179,19 @@ def main(argv: list[str] | None = None) -> int:
             if pad.suffix.lower() == ".pdf":
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
                                               alle_datums=args.alle_datums, alleen_familie=bool(familie),
-                                              vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen)
+                                              vrager=vrager, zonder_afbeeldingen=args.zonder_afbeeldingen,
+                                              familiegegevens=gegevens, sleutel=sleutel)
                 r = anon.verwerk(pad, args.uitvoer, maak_pdf=not args.alleen_tekst,
                                  maak_tekst=not args.alleen_pdf, sleutelbestand=sleutel)
             elif pad.suffix.lower() in (".xml", ".zip"):
                 camt = camt or CamtAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
-                                                  alleen_familie=bool(familie), vrager=vrager)
+                                                  alleen_familie=bool(familie), vrager=vrager,
+                                                  familiegegevens=gegevens, sleutel=sleutel)
                 r = camt.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
             else:
                 bank = bank or BankAnonimiseerder(namen, behoud, args.alle_tegenpartijen,
-                                                  alleen_familie=bool(familie), vrager=vrager)
+                                                  alleen_familie=bool(familie), vrager=vrager,
+                                                  familiegegevens=gegevens, sleutel=sleutel)
                 r = bank.verwerk(pad, args.uitvoer, sleutelbestand=sleutel)
         except Exception as e:
             print(f"[{i}] FOUT bij {pad.name}: {e}", file=sys.stderr)

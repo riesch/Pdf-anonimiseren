@@ -45,6 +45,44 @@ alsnog in het document staan. BSN's, adressen, rekeningnummers enz. worden wel b
 vervangen. Met `--alle-namen` vervang je toch alle namen; met `--familie pad/naar/lijst.txt`
 gebruik je een lijst op een andere plek.
 
+### BSN, adres en geboortedatum van familieleden
+
+Je kunt het script ook de BSN's, adressen en geboortedata van je familie laten kennen.
+Een BSN van Richard wordt dan `[BSN Richard]` en zijn adres `[adres Richard]`, zodat een AI
+nog weet van wie het gegeven is. Zijn geboortedatum wordt het geboortejaar, ook als er geen
+"geboren" bij staat (bijvoorbeeld in een tabel). Andere BSN's en adressen worden gewoon `[BSN]`
+en `[adres]`.
+
+Toevoegen gaat met vragen:
+
+```bash
+python anonimiseer.py --familie-toevoegen
+```
+
+```
+  Naam (alle voornamen en achternaam): Richard Pieter Jansen
+  Roepnaam (Enter = eerste voornaam):
+  BSN: …
+  Geboortedatum (dd-mm-jjjj): …
+  Adres 1 – straat (Enter = klaar): …
+    Huisnummer + toevoeging (bijv. 12a): …
+    Postcode: …
+```
+
+In `familie.txt` komen de gegevens **niet leesbaar** te staan, alleen als vingerafdruk:
+
+```
+Richard Pieter Jansen
+    bsn: 86c23bd8b3a77d66cb34c0213cb5a9cf
+    adres: 3f306474947f1bed06c34e0ecab70aa5   # straat + huisnummer
+```
+
+Die vingerafdruk wordt gemaakt met een geheime sleutel die apart in je thuismap staat
+(`~/.pdf-anonimiseren/sleutel`). Wie alleen `familie.txt` in handen krijgt, kan er de BSN's en
+adressen niet uit terughalen. Bewaar die sleutel wel: zonder sleutel worden de opgeslagen
+gegevens niet meer herkend en moet je ze opnieuw toevoegen. Een adres wordt herkend als straat +
+huisnummer (ook afgekort, zoals `Kerkstr. 12 A`), als postcode + huisnummer of als postcode.
+
 ### Ontbrekende voornaam
 
 Staat van iemand alleen een initiaal in het document (`A. de Vries`), dan vraagt het script:
@@ -165,6 +203,7 @@ Per PDF krijg je in de map `geanonimiseerd/`:
 | Optie | Betekenis |
 |---|---|
 | `--namen namen.txt` | namen die zeker vervangen moeten worden, één per regel (bijv. alle gezinsleden); `= roepnaam` erachter kiest het label |
+| `--familie-toevoegen` | met vragen een familielid met BSN, geboortedatum en adres toevoegen |
 | `--familie lijst.txt` | alleen deze familie-/gezinsleden vervangen (standaard `familie.txt` als die er is) |
 | `--alle-namen` | alle namen vervangen, ook als er een `familie.txt` is |
 | `--niet-vragen` | niet om ontbrekende voornamen vragen |

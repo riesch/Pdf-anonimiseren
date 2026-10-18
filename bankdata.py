@@ -210,8 +210,10 @@ def _is_rekening(waarde: str) -> bool:
 class BankAnonimiseerder:
     def __init__(self, namen: list[str] | None = None, behoud: set[str] | None = None,
                  alle_tegenpartijen: bool = False, alleen_familie: bool = False,
-                 vrager: an.Vrager | None = None):
+                 vrager: an.Vrager | None = None, familiegegevens=None, sleutel: bytes | None = None):
         self.herkenner = an.NaamHerkenner(False, behoud or set(), namen or [])
+        self.familiegegevens = familiegegevens
+        self.sleutel = sleutel
         self.alleen_familie = alleen_familie
         self.vrager = vrager
         self.behoud = {an._norm(b) for b in (behoud or set())}
@@ -301,6 +303,7 @@ class Sessie:
         self.tellingen: dict[str, int] = {}
         self.personen: list[an.Persoon] = []
         self.patronen: list = []
+        self.familie = None
 
     def tel(self, soort: str) -> None:
         if soort != "behouden":
@@ -313,6 +316,9 @@ class Sessie:
         if gevonden | bool(a.vrager and a.vrager.vul_aan(self.personen, bron, met_pagina=False)):
             families = an.ken_labels_toe(self.personen, a.alleen_familie)
         self.patronen = an.naam_patronen(self.personen, families, vermeldingen)
+        # Zelfde koppeling als bij PDF's: BSN/adres van een familielid krijgt diens naam.
+        from familie import maak_index
+        self.familie = maak_index(a.familiegegevens, a.sleutel, self.personen, a.herkenner.extra_namen)
 
     def naam_label(self, waarde: str) -> str:
         vondsten = an.kies_vondsten(an.vind_namen(waarde, self.patronen))
@@ -354,7 +360,11 @@ class Sessie:
                      for s, e, w in self.anon._namen_in_tekst(tekst)]
         vondsten += [an.Vondst(m.start(1), m.end(1), "pasnummer", "[pasnummer]", 8)
                      for m in PAS_RE.finditer(tekst)]
-        gekozen = an.kies_vondsten(vondsten)
+        eigen = self.familie.vind(tekst) if self.familie else []
+        gekozen = an.kies_vondsten(vondsten + eigen)
+        if eigen:
+            from familie import verfijn
+            verfijn(gekozen, eigen)
         for v in gekozen:
             self.tel(v.soort)
         return an.pas_toe(tekst, gekozen)

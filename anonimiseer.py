@@ -41,7 +41,6 @@ import contextlib
 import io
 import json
 import re
-import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path

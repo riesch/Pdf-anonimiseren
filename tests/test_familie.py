@@ -20,13 +20,27 @@ ANTWOORDEN = [
 ]
 
 
+class NepSleutelhanger:
+    """Doet zich voor als de sleutelhanger van het systeem; de tests raken de echte nooit aan."""
+    priority = 1
+
+    def __init__(self):
+        self.inhoud = {}
+
+    def get_password(self, dienst, account):
+        return self.inhoud.get((dienst, account))
+
+    def set_password(self, dienst, account, waarde):
+        self.inhoud[(dienst, account)] = waarde
+
+
 @pytest.fixture
 def lijst(tmp_path):
     antwoorden = iter(ANTWOORDEN)
     pad = tmp_path / "familie.txt"
     sleutelpad = tmp_path / "sleutel"
-    assert fam.familielid_toevoegen(pad, lambda _: next(antwoorden), sleutelpad) == "Richard"
-    return pad, fam.geheime_sleutel(pad=sleutelpad)
+    assert fam.familielid_toevoegen(pad, lambda _: next(antwoorden), sleutelpad, sleutelhanger=None) == "Richard"
+    return pad, fam.geheime_sleutel(pad=sleutelpad, sleutelhanger=None)
 
 
 def _anon(pad, sleutel, **kw):
@@ -60,6 +74,41 @@ def test_familiemodus(lijst):
 
 def test_andere_sleutel_herkent_niets(lijst, tmp_path):
     pad, _ = lijst
-    ander = fam.geheime_sleutel(maak=True, pad=tmp_path / "andere")
+    ander = fam.geheime_sleutel(maak=True, pad=tmp_path / "andere", sleutelhanger=None)
     gegevens = fam.lees_familie(pad, ander)
     assert not gegevens.sleutel_klopt
+
+
+def test_nieuwe_sleutel_gaat_in_sleutelhanger(tmp_path):
+    kr, pad = NepSleutelhanger(), tmp_path / "sleutel"
+    sleutel = fam.geheime_sleutel(maak=True, pad=pad, sleutelhanger=kr)
+    assert not pad.exists() and kr.get_password(fam.DIENST, fam.ACCOUNT) == sleutel.hex()
+    assert fam.geheime_sleutel(pad=pad, sleutelhanger=kr) == sleutel
+
+
+def test_zonder_sleutelhanger_een_bestand(tmp_path):
+    pad = tmp_path / "sleutel"
+    sleutel = fam.geheime_sleutel(maak=True, pad=pad, sleutelhanger=None)
+    assert bytes.fromhex(pad.read_text()) == sleutel
+
+
+def test_bestaande_sleutel_overzetten_en_reservekopie(tmp_path):
+    kr, pad = NepSleutelhanger(), tmp_path / "sleutel"
+    sleutel = fam.geheime_sleutel(maak=True, pad=pad, sleutelhanger=None)
+    fam.naar_sleutelhanger(pad=pad, sleutelhanger=kr)
+    assert not pad.exists() and fam.geheime_sleutel(pad=pad, sleutelhanger=kr) == sleutel
+
+    kopie = tmp_path / "usb" / "reservekopie"
+    fam.exporteer_sleutel(kopie, pad=pad, sleutelhanger=kr)
+    ander = NepSleutelhanger()   # bijv. een andere computer
+    fam.naar_sleutelhanger(pad=pad, sleutelhanger=ander, bron=kopie)
+    assert kopie.exists() and fam.geheime_sleutel(pad=pad, sleutelhanger=ander) == sleutel
+
+
+def test_overschrijft_geen_andere_sleutel(tmp_path):
+    kr, pad = NepSleutelhanger(), tmp_path / "sleutel"
+    fam.geheime_sleutel(maak=True, pad=tmp_path / "x", sleutelhanger=kr)
+    fam.geheime_sleutel(maak=True, pad=pad, sleutelhanger=None)
+    with pytest.raises(RuntimeError, match="andere sleutel"):
+        fam.naar_sleutelhanger(pad=pad, sleutelhanger=kr)
+    assert pad.exists()

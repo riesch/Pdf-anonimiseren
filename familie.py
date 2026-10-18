@@ -10,8 +10,10 @@ Een BSN van Richard wordt dan "[BSN Richard]", zijn adres "[adres Richard]" en z
 geboortedatum het geboortejaar (ook zonder "geboren" ervoor, bijv. in een tabel).
 
 De gegevens staan er niet leesbaar in, maar als vingerafdruk (HMAC-SHA256) met een
-geheime sleutel die apart in je thuismap staat (~/.pdf-anonimiseren/sleutel). Wie
-alleen familie.txt in handen krijgt, kan de gegevens er niet uit terughalen.
+geheime sleutel. Die sleutel staat in de sleutelhanger van je besturingssysteem
+(Sleutelhanger op macOS, Referentiebeheer op Windows, Secret Service op Linux) of,
+als die er niet is, in ~/.pdf-anonimiseren/sleutel. Wie alleen familie.txt in handen
+krijgt, kan de gegevens er niet uit terughalen.
 
 Toevoegen gaat met vragen:  python anonimiseer.py --familie-toevoegen
 """
@@ -29,6 +31,8 @@ from pathlib import Path
 import anonimiseer as an
 
 SLEUTEL_PAD = Path.home() / ".pdf-anonimiseren" / "sleutel"
+DIENST, ACCOUNT = "pdf-anonimiseren", "familie-sleutel"   # naam in de sleutelhanger
+SYSTEEM = "systeem"
 CONTROLE_RE = re.compile(r"#\s*sleutel-controle:\s*([0-9a-f]+)")
 GEGEVEN_RE = re.compile(r"^\s+(bsn|geboortedatum|adres)\s*:\s*([0-9a-f]{16,64})", re.I)
 
@@ -37,19 +41,89 @@ GEGEVEN_RE = re.compile(r"^\s+(bsn|geboortedatum|adres)\s*:\s*([0-9a-f]{16,64})"
 # Sleutel en vingerafdrukken
 # ---------------------------------------------------------------------------
 
-def geheime_sleutel(maak: bool = False, pad: Path = SLEUTEL_PAD) -> bytes | None:
-    if pad.is_file():
-        return bytes.fromhex(pad.read_text().strip())
-    if not maak:
+def systeem_sleutelhanger():
+    """De sleutelhanger van het besturingssysteem, of None als die er niet is."""
+    try:
+        import keyring
+    except ImportError:
         return None
+    kr = keyring.get_keyring()
+    return kr if getattr(kr, "priority", 0) > 0 else None
+
+
+def _sleutelhanger(sleutelhanger):
+    return systeem_sleutelhanger() if sleutelhanger == SYSTEEM else sleutelhanger
+
+
+def _schrijf_bestand(pad: Path, sleutel: bytes) -> None:
     pad.parent.mkdir(parents=True, exist_ok=True)
-    sleutel = secrets.token_bytes(32)
     pad.write_text(sleutel.hex())
     try:
         os.chmod(pad, 0o600)
     except OSError:  # pragma: no cover - bijv. Windows
         pass
+
+
+def geheime_sleutel(maak: bool = False, pad: Path = SLEUTEL_PAD, sleutelhanger=SYSTEEM) -> bytes | None:
+    """Haal de sleutel uit de sleutelhanger, anders uit het bestand; maak er zo nodig een.
+
+    Een nieuwe sleutel gaat in de sleutelhanger als die er is, anders in het bestand.
+    """
+    kr = _sleutelhanger(sleutelhanger)
+    if kr is not None and (opgeslagen := kr.get_password(DIENST, ACCOUNT)):
+        return bytes.fromhex(opgeslagen)
+    if pad.is_file():
+        return bytes.fromhex(pad.read_text().strip())
+    if not maak:
+        return None
+    sleutel = secrets.token_bytes(32)
+    if kr is not None:
+        kr.set_password(DIENST, ACCOUNT, sleutel.hex())
+    else:
+        _schrijf_bestand(pad, sleutel)
     return sleutel
+
+
+def sleutel_locatie(pad: Path = SLEUTEL_PAD, sleutelhanger=SYSTEEM) -> str:
+    kr = _sleutelhanger(sleutelhanger)
+    if kr is not None and kr.get_password(DIENST, ACCOUNT):
+        return f"de sleutelhanger ({DIENST})"
+    return str(pad)
+
+
+def naar_sleutelhanger(pad: Path = SLEUTEL_PAD, sleutelhanger=SYSTEEM, bron: Path | None = None) -> str:
+    """Zet de sleutel uit een bestand in de sleutelhanger en wis het bestand (tenzij het een
+    reservekopie is die met bron is opgegeven)."""
+    kr = _sleutelhanger(sleutelhanger)
+    if kr is None:
+        raise RuntimeError("geen sleutelhanger gevonden. Installeer 'keyring' (pip install keyring); "
+                           "op Linux is daarnaast een sleutelbos nodig, zoals GNOME Keyring of KWallet")
+    bestand = bron or pad
+    if not bestand.is_file():
+        raise RuntimeError(f"geen sleutelbestand gevonden: {bestand}")
+    sleutel = bestand.read_text().strip()
+    bytes.fromhex(sleutel)   # controle: is het echt een sleutel?
+    bestaand = kr.get_password(DIENST, ACCOUNT)
+    if bestaand and bestaand != sleutel:
+        raise RuntimeError("er staat al een andere sleutel in de sleutelhanger; niets gewijzigd")
+    kr.set_password(DIENST, ACCOUNT, sleutel)
+    if kr.get_password(DIENST, ACCOUNT) != sleutel:
+        raise RuntimeError("opslaan in de sleutelhanger is mislukt; het bestand blijft staan")
+    if bron is None:
+        pad.write_text("0" * len(sleutel))   # eerst overschrijven, dan wissen
+        pad.unlink()
+        return f"Sleutel staat nu in de sleutelhanger; {pad} is gewist."
+    return "Sleutel staat nu in de sleutelhanger."
+
+
+def exporteer_sleutel(doel: Path, pad: Path = SLEUTEL_PAD, sleutelhanger=SYSTEEM) -> None:
+    """Reservekopie, bijv. op een usb-stick of om op een andere computer te importeren."""
+    sleutel = geheime_sleutel(pad=pad, sleutelhanger=sleutelhanger)
+    if sleutel is None:
+        raise RuntimeError("er is nog geen sleutel")
+    if doel.exists():
+        raise RuntimeError(f"{doel} bestaat al; kies een andere naam")
+    _schrijf_bestand(doel, sleutel)
 
 
 def vingerafdruk(sleutel: bytes, soort: str, waarde: str) -> str:
@@ -216,9 +290,10 @@ def _datum_iso(tekst: str) -> str | None:
     return None
 
 
-def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD) -> str | None:
+def familielid_toevoegen(pad: Path, invoer=input, sleutelpad: Path = SLEUTEL_PAD,
+                         sleutelhanger=SYSTEEM) -> str | None:
     """Vraag naam, roepnaam, BSN, geboortedatum en adres(sen) en schrijf vingerafdrukken weg."""
-    sleutel = geheime_sleutel(maak=True, pad=sleutelpad)
+    sleutel = geheime_sleutel(maak=True, pad=sleutelpad, sleutelhanger=sleutelhanger)
     print("Familielid toevoegen. De gegevens worden alleen als vingerafdruk opgeslagen.\n"
           "Enter zonder iets in te vullen = overslaan.\n")
     naam = _vraag(invoer, "  Naam (alle voornamen en achternaam): ")

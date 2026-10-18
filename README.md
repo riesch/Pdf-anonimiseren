@@ -77,10 +77,22 @@ Richard Pieter Jansen
     adres: 3f306474947f1bed06c34e0ecab70aa5   # straat + huisnummer
 ```
 
-Die vingerafdruk wordt gemaakt met een geheime sleutel die apart in je thuismap staat
-(`~/.pdf-anonimiseren/sleutel`). Wie alleen `familie.txt` in handen krijgt, kan er de BSN's en
-adressen niet uit terughalen. Bewaar die sleutel wel: zonder sleutel worden de opgeslagen
-gegevens niet meer herkend en moet je ze opnieuw toevoegen. Een adres wordt herkend als straat +
+Die vingerafdruk wordt gemaakt met een geheime sleutel. Wie alleen `familie.txt` in handen
+krijgt, kan er de BSN's en adressen niet uit terughalen.
+
+**Waar staat de sleutel?** Is `keyring` geïnstalleerd (`pip install -r requirements.txt` doet dat),
+dan in de sleutelhanger van je computer: *Sleutelhanger* op een Mac (onder de naam
+`pdf-anonimiseren`), *Referentiebeheer* op Windows, of de sleutelbos van Linux. Anders in het
+bestand `~/.pdf-anonimiseren/sleutel`.
+
+| Commando | Wat het doet |
+|---|---|
+| `--sleutel-naar-sleutelhanger` | zet een bestaand sleutelbestand in de sleutelhanger en wist het bestand |
+| `--sleutel-exporteren pad/naar/kopie` | maakt een reservekopie, bijv. op een usb-stick |
+| `--sleutel-naar-sleutelhanger pad/naar/kopie` | zet een reservekopie in de sleutelhanger, bijv. op een andere computer |
+
+Maak een reservekopie en bewaar die apart van `familie.txt`: zonder sleutel worden de
+opgeslagen gegevens niet meer herkend en moet je ze opnieuw toevoegen. Een adres wordt herkend als straat +
 huisnummer (ook afgekort, zoals `Kerkstr. 12 A`), als postcode + huisnummer of als postcode.
 
 ### Ontbrekende voornaam

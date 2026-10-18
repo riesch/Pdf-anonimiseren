@@ -1103,6 +1103,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--familie-toevoegen", action="store_true",
                     help="voeg met vragen een familielid toe (naam, roepnaam, BSN, geboortedatum, adres) "
                          "aan familie.txt; BSN en adres worden daarna '[BSN Naam]' en '[adres Naam]'")
+    ap.add_argument("--sleutel-naar-sleutelhanger", nargs="?", const=True, metavar="BESTAND",
+                    help="zet de geheime sleutel in de sleutelhanger van je computer en wis het "
+                         "sleutelbestand; met BESTAND: importeer een reservekopie")
+    ap.add_argument("--sleutel-exporteren", type=Path, metavar="BESTAND",
+                    help="maak een reservekopie van de geheime sleutel (bijv. op een usb-stick)")
     ap.add_argument("--alle-namen", action="store_true",
                     help="vervang alle namen, ook als er een familie.txt is")
     ap.add_argument("--niet-vragen", action="store_true",
@@ -1125,6 +1130,19 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     import familie as fam
+    if args.sleutel_naar_sleutelhanger or args.sleutel_exporteren:
+        try:
+            if args.sleutel_exporteren:
+                fam.exporteer_sleutel(args.sleutel_exporteren)
+                print(f"Reservekopie gemaakt: {args.sleutel_exporteren}. Bewaar die veilig en "
+                      "nooit naast familie.txt.")
+            else:
+                bron = None if args.sleutel_naar_sleutelhanger is True else Path(args.sleutel_naar_sleutelhanger)
+                print(fam.naar_sleutelhanger(bron=bron))
+        except RuntimeError as e:
+            print(f"Niet gelukt: {e}", file=sys.stderr)
+            return 1
+        return 0
     if args.familie_toevoegen:
         doel = args.familie or Path("familie.txt")
         while fam.familielid_toevoegen(doel):
@@ -1165,7 +1183,8 @@ def main(argv: list[str] | None = None) -> int:
     gegevens.samenvoegen(fam.lees_familie(familie, sleutel))
     if not gegevens.leeg and not gegevens.sleutel_klopt:
         print(f"Let op: de BSN's/adressen in de familielijst zijn met een andere sleutel gemaakt dan "
-              f"{fam.SLEUTEL_PAD}; ze worden niet herkend. Voeg ze opnieuw toe met --familie-toevoegen.\n")
+              f"die in {fam.sleutel_locatie()}; ze worden niet herkend. Importeer de juiste sleutel met "
+              "--sleutel-naar-sleutelhanger BESTAND of voeg ze opnieuw toe met --familie-toevoegen.\n")
         gegevens = None
     behoud = set(lees_lijst(args.behoud))
     vrager = None

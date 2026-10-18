@@ -1213,7 +1213,7 @@ class Anonimiseerder:
         uitvoer = [pagina_markdown(l, vs) for l, vs in zip(lezingen, per_pagina)]
 
         # Ook de bestandsnaam kan namen bevatten.
-        stam = anonieme_bestandsnaam(invoer.stem, patronen, register)
+        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie)
         uitmap.mkdir(parents=True, exist_ok=True)
 
         tellingen: dict[str, int] = {}
@@ -1249,17 +1249,22 @@ class Anonimiseerder:
 
         import controle
         bevindingen = controle.controleer_uitvoer(
-            [(f"pagina {i}", t) for i, t in enumerate(uitvoer, 1)], personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
+            [("bestandsnaam", stam)] + [(f"pagina {i}", t) for i, t in enumerate(uitvoer, 1)], personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
             namen_verdacht=not self.alleen_familie, datums_verdacht=not self.alle_datums)
         r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken, ocr=ocr_paginas,
                       tabellen=sum(len(l.tabellen) for l in lezingen))
         return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
 
-def anonieme_bestandsnaam(stam: str, patronen, register: Register) -> str:
-    """Ook een bestandsnaam kan een naam of rekeningnummer bevatten."""
+def anonieme_bestandsnaam(stam: str, patronen, register: Register, familie=None) -> str:
+    """Ook een bestandsnaam kan een naam, rekeningnummer of (via de familielijst) een
+    BSN, adres of geboortedatum van een familielid bevatten."""
     overig, _ = vind_overig(stam, register, alle_datums=False)
-    vondsten = kies_vondsten(overig + vind_namen(stam, patronen))
+    eigen = familie.vind(stam) if familie else []
+    vondsten = kies_vondsten(overig + vind_namen(stam, patronen) + eigen)
+    if eigen:
+        from familie import verfijn
+        verfijn(vondsten, eigen)
     return re.sub(r"[^\w\- ]+", "", pas_toe(stam, vondsten)).strip() or "document"
 
 

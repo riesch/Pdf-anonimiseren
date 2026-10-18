@@ -57,6 +57,8 @@ def _fragment(tekst: str, start: int, eind: int, breedte: int = 50) -> str:
 
 
 def _plek(deel: str, tekst: str, pos: int) -> str:
+    if deel == "bestandsnaam":
+        return "bestandsnaam"
     regel = f"regel {tekst.count(chr(10), 0, pos) + 1}"
     return f"{deel}, {regel}" if deel else regel
 
@@ -96,9 +98,12 @@ def controleer_uitvoer(delen: list[tuple[str, str]], personen: list[an.Persoon],
     uit: list[Bevinding] = []
     verboden = verboden_woorden(personen, behoud or set())
     labels = {p.label for p in personen if p.label}
-    for deel, tekst in delen:
+    for deel, origineel in delen:
+        # In een bestandsnaam is "_" een scheidingsteken: "jansen_2023" bevat het woord "jansen".
+        tekst = origineel.replace("_", " ") if deel == "bestandsnaam" else origineel
+
         def voeg_toe(ernst, soort, start, eind):
-            uit.append(Bevinding(ernst, soort, _plek(deel, tekst, start), _fragment(tekst, start, eind)))
+            uit.append(Bevinding(ernst, soort, _plek(deel, tekst, start), _fragment(origineel, start, eind)))
 
         # --- lekken
         gemeld: set[int] = set()

@@ -224,7 +224,7 @@ Na het anonimiseren kijkt het script de **uitvoer** nog eens na.
 **Lekcheck.** Het zoekt naar gegevens van mensen uit je familie- of namenlijst die er niet meer
 in mogen staan: hun achternaam (ook in kleine letters, zoals `fam. jansen`), hun andere
 voornamen, en hun BSN, adres of geboortedatum. Ook gegevens die in de PDF bleven staan en
-gescande pagina's tellen als lek. Bij een lek krijgt het bestand `_CONTROLEREN` in de naam
+gescande pagina's tellen als lek. Ook de bestandsnaam wordt zo gecontroleerd. Bij een lek krijgt het bestand `_CONTROLEREN` in de naam
 (`brief_anoniem_CONTROLEREN.md`), zodat je het niet per ongeluk deelt:
 
 ```

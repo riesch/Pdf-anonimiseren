@@ -372,7 +372,7 @@ class Sessie:
         return an.pas_toe(tekst, gekozen)
 
     def bestandsnaam(self, stam: str) -> str:
-        return an.anonieme_bestandsnaam(stam, self.patronen, self.register)
+        return an.anonieme_bestandsnaam(stam, self.patronen, self.register, self.familie)
 
     def resultaat(self, invoer: Path, uitpad: Path, uitvoer: list[tuple[str, str]],
                   sleutelbestand: Path | None) -> an.Resultaat:
@@ -383,7 +383,8 @@ class Sessie:
         alles = "\n".join(t for _, t in uitvoer)
         lekken = controleer_bank(alles, self.register, self.personen, self.anon.alleen_familie)
         # Datums blijven in bankdata bewust staan; die zijn dus niet verdacht.
-        bevindingen = controle.controleer_uitvoer(uitvoer, self.personen, self.familie, self.anon.behoud,
+        namen = [("bestandsnaam", uitpad.stem)] + [("bestandsnaam", deel) for deel, _ in uitvoer if deel]
+        bevindingen = controle.controleer_uitvoer(namen + uitvoer, self.personen, self.familie, self.anon.behoud,
                                                   namen_verdacht=not self.anon.alleen_familie,
                                                   datums_verdacht=False)
         r = an.Resultaat(None, uitpad, self.tellingen, 0, [], lekken)

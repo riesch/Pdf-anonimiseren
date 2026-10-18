@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import pymupdf
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -143,3 +144,13 @@ def test_geboortedatum_voluit_in_akte_herkend(tmp_path):
     uit = _anon(pad, sleutel).anonimiseer_tekst(
         "de heer Richard JANSEN, op de tiende februari negentienhonderd tachtig te Utrecht ter wereld gekomen")
     assert uit == "de heer Richard, op 1980 te Utrecht ter wereld gekomen"
+
+
+def test_familiegegevens_in_bestandsnaam(lijst, tmp_path):
+    pad, sleutel = lijst
+    bron = tmp_path / "geboorteakte_12-03-1985_111222333.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 60), "Akte", fontsize=11)
+    doc.save(bron)
+    r = _anon(pad, sleutel).verwerk(bron, tmp_path / "uit")
+    assert r.tekst.name == "geboorteakte_1985_BSN Richard_anoniem.md"

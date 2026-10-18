@@ -78,3 +78,12 @@ def test_geen_rapport(tmp_path):
     _pdf(bron, "Naam: Richard Jansen")
     r = an.Anonimiseerder(gebruik_ner=False, rapport=False).verwerk(bron, tmp_path / "uit")
     assert r.rapport is None and not (tmp_path / "uit" / "controle").exists()
+
+
+def test_bestandsnaam_wordt_gecontroleerd(tmp_path):
+    bron = tmp_path / "jansen_2023.pdf"
+    _pdf(bron, "Naam: Richard Jansen")
+    r = an.Anonimiseerder(namen=["Richard Jansen"], gebruik_ner=False).verwerk(bron, tmp_path / "uit")
+    assert r.gemarkeerd and r.tekst.name == "jansen_2023_anoniem_CONTROLEREN.md"
+    lek = [b for b in r.bevindingen if b.ernst == "lek"][0]
+    assert lek.plek == "bestandsnaam" and lek.fragment == "»jansen«_2023"

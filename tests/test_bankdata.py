@@ -66,3 +66,8 @@ def test_familie_modus_bank(tmp_path):
     _, uit = _verwerk(tmp_path, "x.csv", inhoud, namen=["Jan Jansen"], alleen_familie=True)
     assert "JANSEN" not in uit.upper() and uit.count('"Jan"') == 2
     assert '"K Visser"' in uit and "Naam: K Visser" in uit   # geen familie: blijft staan
+
+
+def test_csv_met_bom_voor_excel(tmp_path):
+    r, _ = _verwerk(tmp_path, "x.csv", ING)
+    assert r.tekst.read_bytes().startswith(b"\xef\xbb\xbf")

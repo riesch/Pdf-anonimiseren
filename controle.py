@@ -39,7 +39,8 @@ GEWONE_WOORDEN = {
 }
 # Nederlands paspoort-/ID-kaartnummer: 2 letters, 6 letters of cijfers, 1 cijfer (geen O).
 DOCUMENTNUMMER_RE = re.compile(r"(?<![\w-])[A-NP-Z]{2}(?=[A-NP-Z0-9]{6}\d)(?=[A-Z]*\d)[A-NP-Z0-9]{6}\d(?![\w-])")
-IBAN_ACHTIG_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}[ \t]*\n?[ \t]*[A-Z]{4}(?:[ \t]*\n?[ \t]*\d){6,}")
+IBAN_ACHTIG_RE = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z]{2}\d{2}[ \t]*\n?[ \t]*[A-Za-z]{4}(?:[ \t]*\n?[ \t]*\d){6,}")
 
 
 @dataclass

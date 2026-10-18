@@ -42,7 +42,7 @@ import io
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pymupdf as fitz  # PyMuPDF
@@ -169,14 +169,17 @@ BSN_RE = re.compile(r"(?<![\d.,\w-])(\d{4}\.\d{2}\.\d{3}|\d{3}[ .]\d{3}[ .]\d{3}
 # loopt een rekeningnummer soms door op de volgende regel. Lengte per land en de
 # controlesom voorkomen dat losse regels aan elkaar geplakt worden.
 # (In een lookahead, zodat een rekeningnummer op de volgende regel niet wordt overgeslagen.)
-IBAN_RE = re.compile(r"(?<![A-Za-z0-9])(?=([A-Z]{2}\d{2}(?:[ \t]*\n?[ \t]*[A-Z0-9]){10,30}))")
+IBAN_RE = re.compile(r"(?<![A-Za-z0-9])(?=([A-Za-z]{2}\d{2}(?:[ \t]*\n?[ \t]*[A-Za-z0-9]){10,30}))")
 REKENING_LABEL_RE = re.compile(
     r"(?i)\b(?:rekening(?:nummer)?|bankrekening(?:nummer)?|reknr|rek\.?[ ]?nr|girorekening|giro)"
     r"\b\.?[ \t]*[:.]?[ \t]*(\d{1,3}(?:[ .]?\n?[ \t]*\d){5,9})(?!\d)"
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 TELEFOON_RE = re.compile(
+    # Nederlands: 06-12345678, 030-1234567, +31 (0)6 12345678
     r"(?<![\w+])(?:(?:\+|00)31[ \t-]?(?:\(0\)[ \t-]?)?|0)[1-9](?:[ \t-]?\d){8}(?!\d)"
+    # buitenlands, altijd met + of 00 en landcode: +32 470 12 34 56, 0049 151 23456789
+    r"|(?<![\w+])(?:\+|00)(?!31)[1-9]\d{0,2}[ \t-]?(?:\(0\)[ \t-]?)?\d(?:[ \t-]?\d){6,11}(?!\d)"
 )
 
 MAANDEN = {
@@ -319,10 +322,13 @@ KADASTER_RE = re.compile(
 )
 
 
+# Nederlandse kentekens (alle sidecodes), met streepjes of spaties: 12-ABC-3, 12 ABC 3.
+_SIDECODES = ["XX-99-XX", "99-XX-99", "99-99-XX", "XX-99-99", "XX-XX-99", "99-XX-XX", "99-XXX-9",
+              "9-XXX-99", "XX-999-X", "X-999-XX", "XXX-99-X", "9-XX-999", "X-99-XXX", "999-XX-9"]
 KENTEKEN_RE = re.compile(
-    r"(?<![\w-])(?:[A-Z]{2}-\d{2}-[A-Z]{2}|\d{2}-[A-Z]{2}-\d{2}|\d{2}-\d{2}-[A-Z]{2}|[A-Z]{2}-\d{2}-\d{2}"
-    r"|[A-Z]{2}-[A-Z]{2}-\d{2}|\d{2}-[A-Z]{2}-[A-Z]{2}|\d{2}-[A-Z]{3}-\d|\d-[A-Z]{3}-\d{2}|[A-Z]{2}-\d{3}-[A-Z]"
-    r"|[A-Z]-\d{3}-[A-Z]{2}|[A-Z]{3}-\d{2}-[A-Z]|\d-[A-Z]{2}-\d{3}|[A-Z]-\d{2}-[A-Z]{3}|\d{3}-[A-Z]{2}-\d)(?![\w-])"
+    r"(?<![\w-])(?:" + "|".join(
+        "[- ]".join("[A-Z]{%d}" % len(g) if g[0] == "X" else "\\d{%d}" % len(g) for g in code.split("-"))
+        for code in _SIDECODES) + r")(?![\w-])"
 )
 NUMMER_RE = re.compile(
     r"(?i)\b(klant|contract|polis|dossier|zaak|patiënt|patient|cliënt|client|personeels|medewerker|"
@@ -439,7 +445,7 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
 
     for m in IBAN_RE.finditer(tekst):
         ruw = m[1]
-        land = ruw[:2]
+        land = ruw[:2].upper()   # ook "nl91abna…" in kleine letters
         # Bepaal het eind: precies de lengte van het land, anders inkorten tot geldig.
         posities = [i for i, c in enumerate(ruw) if not c.isspace()]
         lengtes = [IBAN_LENGTE[land]] if land in IBAN_LENGTE else range(len(posities), 14, -1)
@@ -447,7 +453,7 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
             if n > len(posities):
                 continue
             stuk = ruw[: posities[n - 1] + 1]
-            sleutel = re.sub(r"\s", "", stuk)
+            sleutel = re.sub(r"\s", "", stuk).upper()
             if iban_geldig(sleutel):
                 vondsten.append(Vondst(m.start(1), m.start(1) + len(stuk), "iban",
                                        register.masker(sleutel), 9))
@@ -1170,12 +1176,22 @@ def verwijder_afbeeldingen(page: fitz.Page) -> int:
 
 
 def schoon_document(doc: fitz.Document) -> None:
-    """Verwijder metadata, bladwijzers en bijlagen (kunnen ook namen bevatten)."""
+    """Verwijder wat buiten de zichtbare pagina persoonsgegevens kan bevatten: metadata,
+    bladwijzers, bijlagen, paginaminiaturen (een plaatje van de originele pagina) en de
+    toegankelijkheidsstructuur (kan alternatieve teksten met de originele inhoud hebben)."""
     doc.set_metadata({})
     doc.del_xml_metadata()
     doc.set_toc([])
     for naam in list(doc.embfile_names()):
         doc.embfile_del(naam)
+    for page in doc:
+        for sleutel in ("Thumb", "PieceInfo", "Metadata"):
+            if doc.xref_get_key(page.xref, sleutel)[0] != "null":
+                doc.xref_set_key(page.xref, sleutel, "null")
+    catalogus = doc.pdf_catalog()
+    for sleutel in ("StructTreeRoot", "MarkInfo", "PieceInfo", "SpiderInfo"):
+        if doc.xref_get_key(catalogus, sleutel)[0] != "null":
+            doc.xref_set_key(catalogus, sleutel, "null")
 
 
 # ---------------------------------------------------------------------------
@@ -1353,6 +1369,7 @@ def schrijf_sleutel(pad: Path, personen: list[Persoon], register: Register) -> N
                      for p in personen if p.label is not None},
         "rekeningen en tegenpartijen": {label: waarde for (_, waarde), label in register.labels.items()},
     }
+    pad.parent.mkdir(parents=True, exist_ok=True)
     pad.write_text(json.dumps(sleutel, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -1380,6 +1397,7 @@ def controleer(pdf_pad: Path, paginas: list[str], per_pagina: list[list[Vondst]]
     return lekken
 
 
+SLEUTELMAP = Path.home() / ".pdf-anonimiseren" / "sleutelbestanden"
 ONDERSTEUND = {".pdf", ".csv", ".tsv", ".txt", ".xml", ".zip"}
 
 
@@ -1436,8 +1454,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--alle-tegenpartijen", action="store_true",
                     help="bankexports: vervang ook namen van bedrijven/winkels (standaard alleen privépersonen)")
     ap.add_argument("--sleutel", action="store_true",
-                    help="schrijf ook een sleutelbestand (pseudoniem -> echte gegevens). "
-                         "Bevat persoonsgegevens: deel dit nooit met een AI!")
+                    help="schrijf ook een sleutelbestand (pseudoniem -> echte gegevens) in "
+                         "~/.pdf-anonimiseren/sleutelbestanden/. Bevat persoonsgegevens: nooit delen!")
     args = ap.parse_args(argv)
 
     import familie as fam
@@ -1455,7 +1473,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     if args.familie_toevoegen:
-        doel = args.familie or Path("familie.txt")
+        doel = args.familie or fam.vind_familie() or fam.PROGRAMMAMAP / "familie.txt"
+        print(f"Familielijst: {doel.resolve()}\n")
         while fam.familielid_toevoegen(doel):
             if input("\nNog iemand toevoegen? (j/n) ").strip().lower() not in ("j", "ja", "y"):
                 break
@@ -1480,14 +1499,13 @@ def main(argv: list[str] | None = None) -> int:
     from bankdata import BankAnonimiseerder
     from camt import CamtAnonimiseerder
 
-    familie = args.familie
-    if familie is None and not args.alle_namen and Path("familie.txt").is_file():
-        familie = Path("familie.txt")
-    if args.alle_namen:
-        familie = None
+    familie = None if args.alle_namen else (args.familie or fam.vind_familie())
     if familie:
-        print(f"Familielijst {familie}: alleen deze personen worden vervangen "
+        print(f"Familielijst {familie.resolve()}: alleen deze personen worden vervangen "
               "(--alle-namen om alle namen te vervangen).\n")
+    else:
+        print("Geen familielijst gevonden: alle namen worden vervangen. (Gezocht: "
+              + ", ".join(str(p) for p in fam.familie_kandidaten()) + ")\n")
     namen = lees_lijst(args.namen) + lees_lijst(familie)
     sleutel = fam.geheime_sleutel()
     gegevens = fam.lees_familie(args.namen, sleutel)
@@ -1505,7 +1523,8 @@ def main(argv: list[str] | None = None) -> int:
     fouten = 0
     for i, pad in enumerate(bestanden, 1):
         uitmap = args.uitvoer or pad.parent / "geanonimiseerd"
-        sleutel = uitmap / f"sleutel_{i}.json" if args.sleutel else None
+        # Het sleutelbestand bevat echte gegevens: nooit naast de uitvoer (bijv. in iCloud).
+        sleutel = (SLEUTELMAP / f"{datetime.now():%Y%m%d-%H%M%S}_{i}.json") if args.sleutel else None
         try:
             if pad.suffix.lower() == ".pdf":
                 anon = anon or Anonimiseerder(namen, behoud, gebruik_ner=not args.geen_ner,
@@ -1559,7 +1578,9 @@ def main(argv: list[str] | None = None) -> int:
         if r.rapport:
             print(f"     controlerapport: {r.rapport}")
         if sleutel:
-            print(f"     sleutel: {sleutel} (bevat persoonsgegevens, niet delen!)")
+            print(f"     sleutel: {sleutel}\n"
+                  "     !! Dit bestand bevat ECHTE persoonsgegevens. Niet delen, niet aan een AI geven; "
+                  "verwijder het als je het niet meer nodig hebt.")
     print("\nControleer het resultaat altijd zelf voordat je het met een AI deelt.")
     return 1 if fouten else 0
 

@@ -33,6 +33,19 @@ from pathlib import Path
 import anonimiseer as an
 
 SLEUTEL_PAD = Path.home() / ".pdf-anonimiseren" / "sleutel"
+PROGRAMMAMAP = Path(__file__).resolve().parent
+
+
+def familie_kandidaten() -> list[Path]:
+    """Waar familie.txt gezocht wordt, in deze volgorde."""
+    return [Path.cwd() / "familie.txt", PROGRAMMAMAP / "familie.txt",
+            Path.home() / ".pdf-anonimiseren" / "familie.txt"]
+
+
+def vind_familie() -> Path | None:
+    """De eerste familie.txt die bestaat: in de huidige map, de map van het script, of
+    ~/.pdf-anonimiseren/. Zo maakt het niet uit vanuit welke map je het script start."""
+    return next((p for p in familie_kandidaten() if p.is_file()), None)
 DIENST, ACCOUNT = "pdf-anonimiseren", "familie-sleutel"   # naam in de sleutelhanger
 SYSTEEM = "systeem"
 CONTROLE_RE = re.compile(r"#\s*sleutel-controle:\s*([0-9a-f]+)")
@@ -152,11 +165,17 @@ def norm_straat(straat: str) -> str:
 
 
 def norm_telefoon(t: str) -> str:
-    """'+31 6 1234 5678', '0031-6-12345678' en '06-12345678' worden allemaal '0612345678'."""
+    """'+31 6 1234 5678', '0031-6-12345678' en '06-12345678' worden allemaal '0612345678';
+    buitenlands: '+32 470 12 34 56' en '0032470123456' worden '32470123456'."""
     cijfers = re.sub(r"\D", "", t)
-    for land in ("0031", "31"):
-        if cijfers.startswith(land) and len(cijfers) == len(land) + 9:
-            return "0" + cijfers[len(land):]
+    if t.strip().startswith("+"):
+        pass
+    elif cijfers.startswith("00"):
+        cijfers = cijfers[2:]
+    elif cijfers.startswith("0"):
+        return cijfers                         # Nederlands nummer zonder landcode
+    if cijfers.startswith("31") and len(cijfers) == 11:
+        return "0" + cijfers[2:]
     return cijfers
 
 
@@ -316,7 +335,7 @@ class FamilieIndex:
         for m in an.EMAIL_RE.finditer(tekst):
             if g := leesbaar("e-mail", m[0].lower()):
                 uit.append(an.Vondst(m.start(), m.end(), "email", f"[e-mail {g[1]}]", 12))
-        for m in re.finditer(r"(?<![\w-])[A-Za-z0-9]{1,3}(?:-?[A-Za-z0-9]{1,3}){1,2}(?![\w-])", tekst):
+        for m in re.finditer(r"(?<![\w-])[A-Za-z0-9]{1,3}(?:[- ]?[A-Za-z0-9]{1,3}){1,2}(?![\w-])", tekst):
             if len(norm_kenteken(m[0])) == 6 and (g := leesbaar("kenteken", norm_kenteken(m[0]))):
                 uit.append(an.Vondst(m.start(), m.end(), "kenteken", f"[kenteken {g[1]}]", 12))
         # Eigen termen ("Basisschool De Regenboog"): reeksen woorden proberen, langste eerst,

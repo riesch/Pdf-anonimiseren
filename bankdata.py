@@ -289,11 +289,13 @@ class BankAnonimiseerder:
 
         uitmap.mkdir(parents=True, exist_ok=True)
         uitpad = uitmap / f"{sessie.bestandsnaam(invoer.stem)}_anoniem{invoer.suffix.lower()}"
-        with uitpad.open("w", encoding="utf-8", newline="") as f:
+        # Met BOM voor .csv/.tsv, zodat Excel letters als ë goed toont.
+        codering = "utf-8-sig" if invoer.suffix.lower() in (".csv", ".tsv") else "utf-8"
+        with uitpad.open("w", encoding=codering, newline="") as f:
             schrijver = csv.writer(f, delimiter=scheiding, lineterminator="\n",
                                    quoting=csv.QUOTE_ALL if alles_gequote else csv.QUOTE_MINIMAL)
             schrijver.writerows(uit)
-        return sessie.resultaat(invoer, uitpad, [("", uitpad.read_text(encoding="utf-8"))], sleutelbestand)
+        return sessie.resultaat(invoer, uitpad, [("", uitpad.read_text(encoding="utf-8-sig"))], sleutelbestand)
 
 
 class Sessie:

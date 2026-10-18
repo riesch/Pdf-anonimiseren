@@ -241,3 +241,56 @@ def test_rekeningnummer_over_twee_regels_in_pdf(tmp_path, anon):
     with pymupdf.open(r.pdf) as d:
         tekst = d[0].get_text()
     assert "0417" not in tekst and "1643" not in tekst and "ABNA4300" in tekst and not r.gemarkeerd
+
+
+@pytest.mark.parametrize("tekst, verwacht", [
+    ("Bel +32 470 12 34 56 of 0044 20 7946 0958", "Bel [telefoon] of [telefoon]"),
+    ("Bedrag +12 345 euro, artikel 12 lid 3", "Bedrag +12 345 euro, artikel 12 lid 3"),
+    ("iban nl91abna0417164300", "iban ABNA4300"),
+    ("auto 12 ABC 3 en 12-ABC-3", "auto [kenteken] en [kenteken]"),
+])
+def test_buitenland_kleine_letters_spaties(anon, tekst, verwacht):
+    assert anon.anonimiseer_tekst(tekst) == verwacht
+
+
+def test_paginaminiatuur_en_structuur_verwijderd(tmp_path, anon):
+    bron = tmp_path / "brief.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 60), "Naam: Jan Jansen", fontsize=11)
+    xref = doc.get_new_xref()
+    doc.update_object(xref, "<< /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 >>")
+    doc.update_stream(xref, b"\x00")
+    doc.xref_set_key(doc[0].xref, "Thumb", f"{xref} 0 R")
+    doc.xref_set_key(doc.pdf_catalog(), "StructTreeRoot", "<< /Type /StructTreeRoot >>")
+    doc.save(bron)
+    r = anon.verwerk(bron, tmp_path / "uit")
+    with pymupdf.open(r.pdf) as d:
+        assert d.xref_get_key(d[0].xref, "Thumb")[0] == "null"
+        assert d.xref_get_key(d.pdf_catalog(), "StructTreeRoot")[0] == "null"
+
+
+def test_familie_txt_wordt_overal_gevonden(tmp_path, monkeypatch):
+    import familie as fam
+    thuis = tmp_path / "thuis"
+    (thuis / ".pdf-anonimiseren").mkdir(parents=True)
+    lijst = thuis / ".pdf-anonimiseren" / "familie.txt"
+    lijst.write_text("Jan Jansen\n", encoding="utf-8")
+    monkeypatch.setattr(an.Path, "home", lambda: thuis)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(fam, "PROGRAMMAMAP", tmp_path / "script")
+    assert fam.vind_familie() == lijst
+    (tmp_path / "familie.txt").write_text("Piet Jansen\n", encoding="utf-8")
+    assert fam.vind_familie() == tmp_path / "familie.txt"   # huidige map gaat voor
+
+
+def test_sleutelbestand_buiten_uitvoermap(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(an, "SLEUTELMAP", tmp_path / "sleutels")
+    bron = tmp_path / "bron" / "brief.pdf"
+    bron.parent.mkdir()
+    doc = pymupdf.open()
+    doc.new_page().insert_text((40, 60), "Naam: Jan Jansen", fontsize=11)
+    doc.save(bron)
+    assert an.main([str(bron), "--sleutel", "--geen-ner", "--alle-namen", "--niet-vragen"]) == 0
+    assert list((tmp_path / "sleutels").glob("*.json"))
+    assert not list((bron.parent / "geanonimiseerd").glob("*.json"))
+    assert "ECHTE persoonsgegevens" in capsys.readouterr().out

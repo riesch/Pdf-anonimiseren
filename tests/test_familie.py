@@ -218,3 +218,19 @@ def test_waarschuwing_bij_zelf_getypt_bsn_of_adres(tmp_path):
     assert len(g.waarschuwingen) == 2 and "regel 2" in g.waarschuwingen[0] and "regel 3" in g.waarschuwingen[1]
     assert not any("Kerkstraat" in w or "111222333" in w for w in g.waarschuwingen)   # geen waarden tonen
     assert g.leesbaar == {"jan jansen": [("telefoon", "06-12345678")]}
+
+
+def test_familiemodus_alleen_geboortedata_uit_familie(lijst):
+    """Met familie.txt wordt alleen de geboortedatum van een familielid ingekort,
+    waar die ook staat; die van anderen blijft staan, ook na "geboren"."""
+    pad, sleutel = lijst
+    a = _anon(pad, sleutel, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Geboortedatum   aanvrager (zoals vermeld in de basisregistratie)   12-3-1985\n"
+                              "Piet Bakker, geboren 7-9-1969.")
+    assert "12-3-1985" not in uit and "1985" in uit
+    assert "geboren 7-9-1969" in uit
+
+
+def test_zonder_familie_geboortedata_via_label():
+    uit = an.Anonimiseerder(gebruik_ner=False).anonimiseer_tekst("Piet Bakker, geboren 7-9-1969.")
+    assert "7-9-1969" not in uit and "1969" in uit

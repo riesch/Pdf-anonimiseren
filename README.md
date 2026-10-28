@@ -13,7 +13,7 @@ zodat je ze veilig(er) aan een AI kunt geven. Alles draait op je eigen computer.
 | Alleen een achternaam die bij meerdere personen hoort (bijv. "Dhr. Jansen") | `Familie A` |
 | BSN | **alleen** het BSN van een familielid uit `familie.txt` → `[BSN Richard]`; andere BSN's blijven staan (het controlerapport meldt ze) |
 | Adressen (straat + huisnummer, postcode + plaats, velden als "Adres:") | `[adres]` |
-| Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit, zoals in akten: "de tiende februari negentienhonderd en tachtig") |
+| Geboortedata | alleen het geboortejaar, bijv. `1985` (ook voluit, zoals in akten: "de tiende februari negentienhonderd en tachtig"). Met `familie.txt` **alleen** de geboortedata van familieleden, waar ze ook staan; andere datums blijven staan |
 | IBAN / rekeningnummers | bankcode + laatste 4 cijfers: `NL91 ABNA 0417 1643 00` → `ABNA4300` |
 | Twee rekeningen bij dezelfde bank met dezelfde laatste 4 cijfers | `ABNA4300` en `ABNA4300 (2)` |
 | Buitenlandse IBAN met cijfers als bankcode / oud rekeningnummer | `DE3000` / `****6789` |
@@ -183,7 +183,7 @@ kolom staat:
 
 Een kolom met kop *Naam*, *Achternaam* of *Voornamen* wordt als naam behandeld en een kolom met
 kop *Geboren* of *Geboortedatum* als geboortedatum, ook al staat dat woord niet vlak voor elke
-cel. Tekst die binnen het tabelvak maar buiten de cellen staat (bijv. een voetnoot) komt onder
+cel (dat laatste niet met `familie.txt`: dan alleen de geboortedata van familieleden). Tekst die binnen het tabelvak maar buiten de cellen staat (bijv. een voetnoot) komt onder
 de tabel. Tabellen zonder lijnen en tabellen in scans blijven gewone tekst.
 
 ## Word-documenten en e-mails
@@ -228,7 +228,8 @@ elk met de regel eromheen en het verdachte stuk tussen `»…«`:
   letters als die achternaam ook een gewoon woord is (`groot`, `bakker`);
 - een nummer van 9 cijfers (een BSN van iemand die niet in `familie.txt` staat?), iets dat op
   een rekeningnummer lijkt;
-- een volledige datum (een geboortedatum zonder "geboren" ervoor?). Niet bij bankdata.
+- een volledige datum (een geboortedatum zonder "geboren" ervoor?). Niet bij bankdata en niet met
+  `familie.txt` (daar blijven andere datums bewust staan).
 
 Het rapport bevat alleen tekst uit de uitvoer, nooit de originele gegevens, maar deel het niet
 met een AI. Met `--geen-rapport` wordt het niet geschreven (de lekcheck blijft werken).

@@ -109,7 +109,8 @@ class Anonimiseerder:
         register = Register()
         per_pagina, blijft = [], 0
         for tekst in paginas:
-            overig, _ = vind_overig(tekst, register, self.alle_datums)
+            # Met familie.txt worden alleen de geboortedata van familieleden ingekort.
+            overig, _ = vind_overig(tekst, register, self.alle_datums, not self.alleen_familie)
             eigen = familie.vind(tekst) if familie else []
             gekozen = kies_vondsten(overig + vind_namen(tekst, patronen) + eigen
                                     + (extra[len(per_pagina)] if extra else []))
@@ -127,7 +128,7 @@ class Anonimiseerder:
         kopjes, paginas = [k for k, _ in delen], [t for _, t in delen]
         per_pagina, personen, patronen, register, blijft, familie = self.analyseer(paginas, invoer.name)
         uitvoer = [pas_toe(t, vs) for t, vs in zip(paginas, per_pagina)]
-        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie)
+        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie, not self.alleen_familie)
         uitmap.mkdir(parents=True, exist_ok=True)
         tellingen: dict[str, int] = {}
         for vs in per_pagina:
@@ -143,7 +144,7 @@ class Anonimiseerder:
         bevindingen = controle.controleer_uitvoer(
             [("bestandsnaam", stam)] + list(zip(kopjes, uitvoer)), personen, familie, self.herkenner.behoud,
             nlp=self.herkenner.nlp, namen_verdacht=not self.alleen_familie,
-            datums_verdacht=not self.alle_datums)
+            datums_verdacht=not (self.alle_datums or self.alleen_familie))
         r = Resultaat(None, tekst_pad, tellingen, blijft, [], [])
         return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
@@ -213,12 +214,12 @@ class Anonimiseerder:
         paginas = [l.tekst for l in lezingen]
 
         per_pagina, personen, patronen, register, blijft, familie = self.analyseer(
-            paginas, invoer.name, extra=[tabel_vondsten(l) for l in lezingen],
+            paginas, invoer.name, extra=[[] if self.alleen_familie else tabel_vondsten(l) for l in lezingen],
             tabelnamen=[tabel_namen(l) for l in lezingen])
         uitvoer = [pagina_markdown(l, vs) for l, vs in zip(lezingen, per_pagina)]
 
         # Ook de bestandsnaam kan namen bevatten.
-        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie)
+        stam = anonieme_bestandsnaam(invoer.stem, patronen, register, familie, not self.alleen_familie)
         uitmap.mkdir(parents=True, exist_ok=True)
 
         tellingen: dict[str, int] = dict(extra)
@@ -254,16 +255,17 @@ class Anonimiseerder:
 
         bevindingen = controle.controleer_uitvoer(
             [("bestandsnaam", stam)] + [(f"pagina {i}", t) for i, t in enumerate(uitvoer, 1)], personen, familie, self.herkenner.behoud, nlp=self.herkenner.nlp,
-            namen_verdacht=not self.alleen_familie, datums_verdacht=not self.alle_datums)
+            namen_verdacht=not self.alleen_familie, datums_verdacht=not (self.alle_datums or self.alleen_familie))
         r = Resultaat(pdf_pad, tekst_pad, tellingen, blijft, scans, lekken, ocr=ocr_paginas,
                       tabellen=sum(len(l.tabellen) for l in lezingen), afbeeldingen=afbeeldingen)
         return controle.afronden(r, invoer, uitmap, bevindingen, self.rapport)
 
 
-def anonieme_bestandsnaam(stam: str, patronen, register: Register, familie=None) -> str:
+def anonieme_bestandsnaam(stam: str, patronen, register: Register, familie=None,
+                          geboortedata: bool = True) -> str:
     """Ook een bestandsnaam kan een naam, rekeningnummer of (via de familielijst) een
     BSN, adres of geboortedatum van een familielid bevatten."""
-    overig, _ = vind_overig(stam, register, alle_datums=False)
+    overig, _ = vind_overig(stam, register, alle_datums=False, geboortedata=geboortedata)
     eigen = familie.vind(stam) if familie else []
     vondsten = kies_vondsten(overig + vind_namen(stam, patronen) + eigen)
     if eigen:
@@ -483,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
         for uit in (r.pdf, r.tekst):
             if uit:
                 print(f"     -> {uit}")
-        if r.datums_blijven:
+        if r.datums_blijven and not familie:
             print(f"     ! {r.datums_blijven} datum(s) zonder geboorte-/overlijdenscontext niet aangepast "
                   "(gebruik --alle-datums om ook die te vervangen)")
         if r.ocr:

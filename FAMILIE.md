@@ -191,6 +191,7 @@ Richard Pieter Jansen
 | `Kerkstraat 12a`, `Kerkstr. 12 A`, `3512 JK` | `[adres Richard]` |
 | zijn geboortedatum, in elke schrijfwijze (ook voluit, ook zonder "geboren") | `1980` |
 | een ander BSN | blijft staan: BSN's worden **alleen** via `familie.txt` vervangen |
+| een andere geboortedatum, ook na "geboren" | blijft staan: met `familie.txt` worden **alleen** de geboortedata van familieleden ingekort |
 | een ander adres | `[adres]` |
 
 Geboortedatum kun je typen als `10-02-1980`, `10/02/1980`, `10 februari 1980`, `10 feb. 1980`

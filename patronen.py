@@ -338,15 +338,18 @@ def datum_kandidaten(tekst: str) -> list[tuple[int, int, str, str]]:
     return sorted(kandidaten)
 
 
-def vind_data(tekst: str, alle_datums: bool) -> tuple[list[Vondst], int]:
-    """Geef vondsten voor datums terug, plus het aantal datums dat bleef staan."""
+def vind_data(tekst: str, alle_datums: bool, geboortedata: bool = True) -> tuple[list[Vondst], int]:
+    """Geef vondsten voor datums terug, plus het aantal datums dat bleef staan.
+
+    Met geboortedata=False (familiemodus) wordt een datum na "geboren" niet herkend:
+    dan worden alleen de geboortedata uit familie.txt ingekort (zie familie.py)."""
     vondsten, blijft, vorige_eind = [], 0, 0
     for start, eind, jaar, _ in datum_kandidaten(tekst):
         if start < vorige_eind:
             continue
         venster = tekst[max(vorige_eind, start - 60):start]
         aanduiding = list(GEBOORTE_RE.finditer(venster))
-        if aanduiding:
+        if aanduiding and geboortedata:
             soort = "overlijdensdatum" if OVERLIJDEN_RE.match(aanduiding[-1][0]) else "geboortedatum"
             vondsten.append(Vondst(start, eind, soort, jaar, 5))
         elif alle_datums:
@@ -393,7 +396,8 @@ class Register:
         return self.labels[k]
 
 
-def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list[Vondst], int]:
+def vind_overig(tekst: str, register: Register, alle_datums: bool,
+                geboortedata: bool = True) -> tuple[list[Vondst], int]:
     vondsten: list[Vondst] = []
 
     # BSN's worden hier bewust NIET herkend: alleen het BSN van een familielid uit
@@ -457,6 +461,6 @@ def vind_overig(tekst: str, register: Register, alle_datums: bool) -> tuple[list
     for m in IP_RE.finditer(tekst):
         vondsten.append(Vondst(m.start(), m.end(), "ip-adres", "[ip-adres]", 6))
 
-    data, blijft = vind_data(tekst, alle_datums)
+    data, blijft = vind_data(tekst, alle_datums, geboortedata)
     vondsten.extend(data)
     return vondsten, blijft

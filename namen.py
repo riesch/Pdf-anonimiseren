@@ -53,6 +53,16 @@ def _norm(s: str | None) -> str:
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
 
+def _norm_achter(a: str | None) -> str:
+    """Achternaam vergelijken: 'Westra-Hoekstra' en 'Westra Hoekstra' zijn gelijk."""
+    return re.sub(r"\s*-\s*", " ", _norm(a))
+
+
+def _delen(a: str) -> list[str]:
+    """'Jansen-de Vries' -> ['Jansen', 'de Vries']."""
+    return [d.strip() for d in a.split("-") if d.strip()]
+
+
 def _dubbele_achternamen(tokens: list[str]) -> list[str]:
     """['Anna', 'Jansen-de', 'Vries'] -> ['Anna', 'Jansen-de Vries']."""
     uit, i = [], 0
@@ -205,9 +215,23 @@ def koppel_personen(vermeldingen: list[Vermelding],
     alleen personen uit de namen-/familielijst een label; de rest blijft staan.
     """
     personen: list[Persoon] = []
+    _herstel_dubbele_achternamen(vermeldingen)
 
     def met_achternaam(a):
-        return [p for p in personen if _norm(p.achternaam) == _norm(a)]
+        return [p for p in personen if _norm_achter(a) in (_norm_achter(b) for b in p.achternamen)]
+
+    def met_deel_van(v: Vermelding, past):
+        """'L.S. Westra-Hoekstra' hoort bij een familielid dat alleen 'Hoekstra' heet,
+        als de eerste voornaam of voorletter klopt."""
+        if "-" not in v.achternaam:
+            return []
+        delen = {_norm_achter(d) for d in _delen(v.achternaam)}
+        return [p for p in personen if p.opgegeven and past(p)
+                and delen & {_norm_achter(a) for a in p.achternamen}]
+
+    def voeg_achternaam_toe(p: Persoon, a: str):
+        if _norm_achter(a) not in (_norm_achter(b) for b in p.achternamen):
+            p.extra_achternamen.append(a)
 
     def bijwerken(p: Persoon, v: Vermelding):
         if v.positie[0] == -1:
@@ -231,21 +255,31 @@ def koppel_personen(vermeldingen: list[Vermelding],
     enkel = [v for v in vermeldingen if v.hint == "enkel"]
 
     for v in sorted(volledig, key=lambda v: v.positie):
-        kand = [p for p in met_achternaam(v.achternaam)
-                if p.voornamen and p.voornamen[0].lower() == v.voornamen[0].lower()]
+        def past(p, v=v):
+            return bool(p.voornamen) and p.voornamen[0].lower() == v.voornamen[0].lower()
+        kand = [p for p in met_achternaam(v.achternaam) if past(p)]
+        deel = [] if kand else met_deel_van(v, past)
         if kand:
             bijwerken(kand[0], v)
+        elif len(deel) == 1:
+            bijwerken(deel[0], v)
+            voeg_achternaam_toe(deel[0], v.achternaam)
         else:
             p = Persoon(achternaam=v.achternaam)
             bijwerken(p, v)
             personen.append(p)
 
     for v in sorted(initiaal, key=lambda v: v.positie):
-        kand = [p for p in met_achternaam(v.achternaam)
-                if (p.voornamen and p.voornamen[0][0].upper() == v.initialen[0])
-                or (p.initialen and p.initialen[0] == v.initialen[0])]
+        def past(p, v=v):
+            return ((bool(p.voornamen) and p.voornamen[0][0].upper() == v.initialen[0])
+                    or (bool(p.initialen) and p.initialen[0] == v.initialen[0]))
+        kand = [p for p in met_achternaam(v.achternaam) if past(p)]
+        deel = [] if kand else met_deel_van(v, past)
         if len(kand) == 1:
             bijwerken(kand[0], v)
+        elif len(deel) == 1:
+            bijwerken(deel[0], v)
+            voeg_achternaam_toe(deel[0], v.achternaam)
         elif not kand:
             p = Persoon(achternaam=v.achternaam)
             bijwerken(p, v)
@@ -292,14 +326,30 @@ def koppel_personen(vermeldingen: list[Vermelding],
                     p.voornamen.append(vn)
             p.initialen = max(p.initialen, q.initialen, key=len)
             p.roepnaam = p.roepnaam or q.roepnaam
-            p.extra_achternamen += [a for a in q.achternamen
-                                    if _norm(a) not in (_norm(b) for b in p.achternamen)]
+            for a in q.achternamen:
+                voeg_achternaam_toe(p, a)
             p.positie = min(p.positie, q.positie)
             p.teksten += [t for t in q.teksten if t not in p.teksten]
             p.lijstregels |= q.lijstregels
             personen.remove(q)
 
     return personen, ken_labels_toe(personen, alleen_opgegeven)
+
+
+def _herstel_dubbele_achternamen(vermeldingen: list[Vermelding]) -> None:
+    """Een dubbele achternaam zonder streepje ('Linda Westra Hoekstra') lijkt op voornaam
+    + achternaam. Staat dezelfde naam elders met streepje, dan is 'Westra' geen voornaam."""
+    dubbel = {_norm_achter(v.achternaam): v.achternaam for v in vermeldingen
+              if v.achternaam and "-" in v.achternaam}
+    for v in vermeldingen:
+        if not v.achternaam or "-" in v.achternaam:
+            continue
+        for n in range(len(v.voornamen), 0, -1):
+            samen = " ".join(v.voornamen[-n:] + [v.achternaam])
+            if _norm_achter(samen) in dubbel:
+                v.voornamen = v.voornamen[:-n]
+                v.achternaam = dubbel[_norm_achter(samen)]
+                break
 
 
 def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> dict[str, str]:
@@ -311,9 +361,9 @@ def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> d
     zonder = 0
     # Wie dezelfde achternaam heeft als een opgegeven familielid, hoort er
     # waarschijnlijk ook bij; anders zou "Piet Jansen" de familienaam verraden.
-    familienamen = {_norm(a) for p in personen if p.opgegeven for a in p.achternamen}
+    familienamen = {_norm_achter(a) for p in personen if p.opgegeven for a in p.achternamen}
     for p in sorted(personen, key=lambda p: p.positie):
-        if alleen_opgegeven and not p.opgegeven and _norm(p.achternaam) not in familienamen:
+        if alleen_opgegeven and not p.opgegeven and _norm_achter(p.achternaam) not in familienamen:
             p.label = None
             continue
         basis = p.roepnaam or (p.voornamen[0] if p.voornamen else None)
@@ -329,8 +379,8 @@ def ken_labels_toe(personen: list[Persoon], alleen_opgegeven: bool = False) -> d
     families: dict[str, str] = {}
     letters = iter("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     for p in sorted(personen, key=lambda p: p.positie):
-        a = _norm(p.achternaam)
-        zelfde = [q for q in personen if a and _norm(q.achternaam) == a]
+        a = _norm_achter(p.achternaam)
+        zelfde = [q for q in personen if a and _norm_achter(q.achternaam) == a]
         if a not in families and len(zelfde) > 1 and any(q.label is not None for q in zelfde):
             families[a] = f"Familie {next(letters, '?')}"
     return families
@@ -370,7 +420,7 @@ class Vrager:
         for p in sorted(personen, key=lambda p: p.positie):
             if p.voornamen or p.roepnaam or p.label is None or not p.achternaam:
                 continue
-            sleutel = (_norm(p.achternaam), p.initialen[:1])
+            sleutel = (_norm_achter(p.achternaam), p.initialen[:1])
             schoon = " ".join([f"{i}." for i in p.initialen] + [p.achternaam])
             if sleutel not in self.antwoorden:
                 if not self.actief:
@@ -410,7 +460,8 @@ def _tok(t: str) -> str:
 
 
 def _achternaam_patroon(a: str) -> str:
-    return r"[ ]+".join(_tok(t) for t in a.split())
+    # Bij een dubbele achternaam mag zowel een streepje als een spatie tussen de delen.
+    return r"(?:[ ]*-[ ]*|[ ]+)".join(_tok(t) for t in re.split(r"\s*-\s*|\s+", a.strip()))
 
 
 def naam_patronen(personen: list[Persoon], families: dict[str, str],
@@ -437,7 +488,7 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
             if voor_deel:
                 patronen.append((rf"(?:{'|'.join(voor_deel)})[ ]*{ach}", p.label))
                 patronen.append((rf"{ach},[ ]?(?:{'|'.join(voor_deel)})(?:[ ]{TV_I}){{0,3}}", p.label))
-            fam = families.get(_norm(achternaam))
+            fam = families.get(_norm_achter(achternaam))
             patronen.append((ach, fam or p.label))
         for vn in p.alle_voornamen:
             # Een losse voornaam die bij meerdere personen hoort, blijft gewoon staan.
@@ -449,7 +500,8 @@ def naam_patronen(personen: list[Persoon], families: dict[str, str],
         if v.hint == "enkel" or not (v.voornamen or v.initialen):
             continue  # losse woorden en achternamen worden al door de patronen hierboven gedekt
         label = next((p.label for p in personen
-                      if (v.achternaam and _norm(p.achternaam) == _norm(v.achternaam))
+                      if (v.achternaam and _norm_achter(v.achternaam)
+                          in (_norm_achter(a) for a in p.achternamen))
                       or (not v.achternaam and v.voornamen and v.voornamen[0].lower()
                           in (x.lower() for x in p.alle_voornamen))), None)
         tekst = re.sub(r"\s+", " ", v.tekst).strip(" ,.;:")

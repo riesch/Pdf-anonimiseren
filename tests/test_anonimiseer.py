@@ -324,3 +324,19 @@ def test_telefoon_met_00_alleen_met_landcode(anon, tekst, verwacht):
 def test_bsn_alleen_via_familie(anon):
     assert anon.anonimiseer_tekst("BSN: 111222333, burgerservicenummer 123456782") == \
         "BSN: 111222333, burgerservicenummer 123456782"
+
+
+@pytest.mark.parametrize("lijst", ["Linda Sophia Westra Hoekstra", "Linda Sophia Westra-Hoekstra",
+                                   "Linda Sophia Hoekstra", "Linda Sophia Westra"])
+def test_dubbele_achternaam_met_of_zonder_streepje(lijst):
+    a = an.Anonimiseerder(namen=[lijst], gebruik_ner=False, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Verschenen mevrouw L.S. Westra-Hoekstra, hierna: Linda Westra Hoekstra. "
+                              "Ook Mw. WESTRA-HOEKSTRA tekende. Piet de Boer was getuige.")
+    assert "Westra" not in uit and "Hoekstra" not in uit and "WESTRA" not in uit
+    assert "Piet de Boer" in uit
+
+
+def test_dubbele_achternaam_andere_voorletter_niet_gekoppeld():
+    a = an.Anonimiseerder(namen=["Linda Sophia Hoekstra"], gebruik_ner=False, alleen_familie=True)
+    tekst = "Mevrouw K. Westra-Hoekstra en mevrouw Karin Bakker-Hoekstra waren aanwezig."
+    assert "K. Westra-Hoekstra" in a.anonimiseer_tekst(tekst)

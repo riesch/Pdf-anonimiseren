@@ -92,6 +92,13 @@ Typ de naam zoals hij in documenten staat, **liefst met alle voornamen**. Eén p
 Het script herkent daarna ook andere schrijfwijzen van die persoon: `J. Jansen`, `J.P.M. Jansen`,
 `JANSEN`, `Jansen, J.P.M.`, `Dhr. Jansen` en losse voornamen als `Pieter`.
 
+**Dubbele achternaam:** het streepje mag ontbreken, in familie.txt én in het document:
+`Anna Jansen Bakker` vindt ook `A. Jansen-Bakker`, zolang die naam ergens met streepje staat.
+Staat in familie.txt maar één deel (`Anna Bakker`), dan wordt `A. Jansen-Bakker` toch aan
+Anna gekoppeld als de eerste voornaam of voorletter klopt. De spelling moet wel gelijk zijn;
+het script raadt niet naar tikfouten. Twijfel je, zet dan beide vormen op één regel:
+`Anna Jansen-Bakker | Anna Bakker = Anna`.
+
 Iemand met **dezelfde achternaam** als een familielid wordt ook vervangen, anders zou de
 familienaam alsnog in het document staan. Hebben meerdere familieleden dezelfde achternaam,
 dan wordt een losse achternaam ("Dhr. Jansen") `Familie A`, omdat niet duidelijk is wie bedoeld is.

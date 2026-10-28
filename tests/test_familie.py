@@ -210,12 +210,13 @@ def test_samenvatting_bij_meerdere_bestanden(tmp_path, capsys):
     assert "Samenvatting: 2 bestanden – 2 schoon" in capsys.readouterr().out
 
 
-def test_waarschuwing_bij_zelf_getypt_bsn_of_adres(tmp_path):
+def test_waarschuwing_bij_zelf_getypt_bsn(tmp_path):
+    """Een getypt BSN wordt niet gebruikt (alleen als vingerafdruk); een getypt adres wel."""
     pad = tmp_path / "familie.txt"
     pad.write_text("Jan Jansen\n    adres: Kerkstraat 12\n    bsn: 111222333\n    telefoon: 06-12345678\n",
                    encoding="utf-8")
     g = fam.lees_familie(pad, None)
-    assert len(g.waarschuwingen) == 2 and "regel 2" in g.waarschuwingen[0] and "regel 3" in g.waarschuwingen[1]
+    assert len(g.waarschuwingen) == 1 and "regel 3" in g.waarschuwingen[0]
     assert not any("Kerkstraat" in w or "111222333" in w for w in g.waarschuwingen)   # geen waarden tonen
     assert g.leesbaar == {"jan jansen": [("telefoon", "06-12345678")]}
 
@@ -234,3 +235,39 @@ def test_familiemodus_alleen_geboortedata_uit_familie(lijst):
 def test_zonder_familie_geboortedata_via_label():
     uit = an.Anonimiseerder(gebruik_ner=False).anonimiseer_tekst("Piet Bakker, geboren 7-9-1969.")
     assert "7-9-1969" not in uit and "1969" in uit
+
+
+@pytest.mark.parametrize("getypt", ["3-5-1971", "03-05-1971", "3 mei 1971", "3/5/1971  # moeder"])
+def test_zelf_getypte_geboortedatum(tmp_path, getypt):
+    """Een getypte geboortedatum werkt ook zonder sleutel, in elke schrijfwijze in het document."""
+    pad = tmp_path / "familie.txt"
+    pad.write_text(f"Anna Maria de Vries\n    geboortedatum: {getypt}\n", encoding="utf-8")
+    gegevens = fam.lees_familie(pad, None)
+    assert not gegevens.waarschuwingen
+    a = an.Anonimiseerder(namen=an.lees_lijst(pad), gebruik_ner=False, sleutel=None,
+                          familiegegevens=gegevens, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Geboortedatum   aanvrager (zoals vermeld in de basisregistratie)   3-5-1971\n"
+                              "Anna, 03.05.1971, drie mei negentienhonderdeenenzeventig. Piet: 7-9-1969.")
+    assert uit == ("Geboortedatum   aanvrager (zoals vermeld in de basisregistratie)   1971\n"
+                   "Anna, 1971, 1971. Piet: 7-9-1969.")
+
+
+def test_onbegrepen_getypte_geboortedatum(tmp_path):
+    pad = tmp_path / "familie.txt"
+    pad.write_text("Anna de Vries\n    geboortedatum: ergens in mei\n", encoding="utf-8")
+    w = fam.lees_familie(pad, None).waarschuwingen
+    assert len(w) == 1 and "regel 2" in w[0] and "mei" not in w[0]
+
+
+def test_zelf_getypt_adres(tmp_path):
+    pad = tmp_path / "familie.txt"
+    pad.write_text("Anna de Vries\n    adres: Kerkstraat 12a, 3512 JK Utrecht\n"
+                   "    adres: Achter de Dom 4  # oud adres\n", encoding="utf-8")
+    gegevens = fam.lees_familie(pad, None)
+    assert not gegevens.waarschuwingen
+    a = an.Anonimiseerder(namen=an.lees_lijst(pad), gebruik_ner=False, sleutel=None,
+                          familiegegevens=gegevens, alleen_familie=True)
+    uit = a.anonimiseer_tekst("Woont op KERKSTRAAT 12-A te Utrecht, postcode 3512JK.\n"
+                              "Vroeger: Achter de Dom 4. Buren: Kerkstraat 14.")
+    assert uit == ("Woont op [adres Anna] te Utrecht, postcode [adres Anna].\n"
+                   "Vroeger: [adres Anna]. Buren: [adres].")

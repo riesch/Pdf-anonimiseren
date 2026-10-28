@@ -58,7 +58,8 @@ J.P. Bakker = Jan
 - **Een regel zonder spaties ervoor** is een persoon.
 - **Ingesprongen regels** (met spaties ervoor) zijn gegevens van de persoon erboven.
 - **`= Hans`** achter een naam is de roepnaam. Die wordt het label in plaats van de eerste voornaam.
-- **Leesbare regels** (`telefoon:`, `e-mail:`, `werkgever:`) typ je zelf of laat je vragen.
+- **Leesbare regels** (`telefoon:`, `e-mail:`, `werkgever:`, ook `geboortedatum:` en `adres:`) typ je
+  zelf of laat je vragen.
 - **Vingerafdrukken** (`bsn:`, `geboortedatum:`, `adres:` met een lange code) maakt het script zelf
   via `--familie-toevoegen`. Typ of wijzig die niet met de hand.
 
@@ -103,7 +104,7 @@ Iemand met **dezelfde achternaam** als een familielid wordt ook vervangen, ander
 familienaam alsnog in het document staan. Hebben meerdere familieleden dezelfde achternaam,
 dan wordt een losse achternaam ("Dhr. Jansen") `Familie A`, omdat niet duidelijk is wie bedoeld is.
 
-## 2. Leesbare gegevens zelf typen: telefoon, e-mail, kenteken, eigen termen
+## 2. Leesbare gegevens zelf typen: telefoon, e-mail, kenteken, geboortedatum, adres, eigen termen
 
 Zet ze **ingesprongen** (met spaties ervoor) onder de naam, in de vorm `soort: waarde`:
 
@@ -113,6 +114,9 @@ Richard Pieter Jansen
     telefoon: 030-1234567
     e-mail: richard@voorbeeld.nl
     kenteken: 12-ABC-3
+    geboortedatum: 10-02-1980
+    adres: Kerkstraat 12a, 3512 JK Utrecht
+    adres: Dorpsweg 3            # oud adres
     werkgever: Voorbeeld Installatietechniek
     school: Basisschool De Regenboog
     huisarts: Praktijk De Linde
@@ -124,6 +128,8 @@ Richard Pieter Jansen
 | `telefoon` | `tel`, `mobiel`, `telefoonnummer` | `06 1234 5678`, `+31 6 12345678`, `0031-6-12345678`; buitenlands: `+32 470 12 34 56` | `[telefoon Richard]` |
 | `e-mail` | `email`, `mail` | ook met hoofdletters | `[e-mail Richard]` |
 | `kenteken` | | `12-ABC-3`, `12 ABC 3`, `12ABC3` | `[kenteken Richard]` |
+| `geboortedatum` | | in elke schrijfwijze: `10-2-1980`, `10.02.1980`, `10 februari 1980`, voluit; ook zonder "geboren" ervoor | `1980` |
+| `adres` | | straat + huisnummer (`Kerkstr. 12 A`, `KERKSTRAAT 12-a`) en postcode (`3512JK`), ook los van elkaar | `[adres Richard]` |
 | elk ander woord | | dezelfde woorden, hoofdletters en leestekens maken niet uit | `[werkgever Richard]`, `[school Richard]`, … |
 
 Tips:
@@ -133,7 +139,11 @@ Tips:
   hij in documenten voorkomt; zet varianten op een eigen regel
   (`werkgever: Voorbeeld B.V.` en `werkgever: Voorbeeld Installatietechniek`).
 - Het woord vóór de dubbele punt wordt het label. Kies een kort, duidelijk woord.
-- `bsn`, `geboortedatum` en `adres` kun je **niet** leesbaar typen; die gaan via de vragen (stap 3).
+- Een getypte geboortedatum of een getypt adres staat **leesbaar** in familie.txt. Liever niet
+  leesbaar? Gebruik dan de vragen (stap 3); die slaan ze op als vingerafdruk.
+- Een adres schrijf je als `straat huisnummer, postcode plaats`; straat of postcode mag ontbreken.
+  Begrijpt het script een datum of adres niet, dan meldt het dat met het regelnummer.
+- `bsn` kun je **niet** leesbaar typen; dat gaat alleen via de vragen (stap 3).
 
 ## 3. BSN, geboortedatum en adres: via vragen
 
@@ -243,7 +253,7 @@ keer niet opnieuw gevraagd wordt. Met `--niet-vragen` vraagt het script niets.
 | Gegevensregel zonder spaties ervoor: `telefoon: 06-…` | wordt gelezen als een (ongeldige) naam en genegeerd | `    telefoon: 06-…` |
 | `familie.txt` op een plek waar het script niet zoekt | niet gevonden: alle namen worden vervangen (het script meldt dat) | zet hem in `~/pdf-anonimiseren`, of gebruik `--familie pad` |
 | Dezelfde persoon op twee regels met een andere achternaam (`Anna de Vries` en `Anna Jansen`) | twee personen: `Anna` en `Anna (2)` | één regel: `Anna de Vries \| Anna Jansen = Anna` |
-| BSN, adres of geboortedatum leesbaar typen: `    bsn: …` | wordt niet gebruikt; het script waarschuwt (met regelnummer) | `--familie-toevoegen` |
+| BSN leesbaar typen: `    bsn: …` | wordt niet gebruikt; het script waarschuwt (met regelnummer) | `--familie-toevoegen` |
 | Een gegevensregel zonder `soort:` ervoor | wordt niet begrepen; het script waarschuwt | `    telefoon: 06-…` |
 | Sleutel kwijt | BSN, geboortedatum en adres worden niet meer herkend | reservekopie met `--sleutel-exporteren` |
 

@@ -52,8 +52,9 @@ Anna Wilhelmina de Vries
 ```
 
 Onder een naam kun je gegevens van die persoon zetten. Telefoon, e-mail, kenteken en eigen
-termen (werkgever, school, huisarts, …) typ je zelf; BSN, geboortedatum en adres voeg je toe met
-`python anonimiseer.py --familie-toevoegen`, dat ze als onleesbare vingerafdruk opslaat. In
+termen (werkgever, school, huisarts, …) typ je zelf, en ook geboortedatum en adres mag je typen.
+Het BSN voeg je toe met `python anonimiseer.py --familie-toevoegen`, dat het als onleesbare
+vingerafdruk opslaat (dat kan ook voor geboortedatum en adres). In
 documenten wordt dat `Hans`, `[telefoon Hans]`, `[werkgever Hans]`, `[BSN Hans]`, `[adres Hans]`.
 Staat er van iemand alleen een initiaal, dan vraagt het script om de voornaam en onthoudt het
 antwoord.

@@ -1,8 +1,8 @@
 """Persoonsgegevens van familieleden herkennen en vervangen door een label met hun naam.
 
-In familie.txt kun je onder een naam ook gegevens van die persoon zetten. BSN,
-geboortedatum en adres staan er als vingerafdruk; telefoon, e-mail, kenteken en eigen
-termen (werkgever, school, huisarts, …) gewoon leesbaar, zodat je ze zelf kunt typen:
+In familie.txt kun je onder een naam ook gegevens van die persoon zetten. BSN staat er
+alleen als vingerafdruk; geboortedatum en adres als vingerafdruk of zelf getypt; telefoon,
+e-mail, kenteken en eigen termen (werkgever, school, huisarts, …) gewoon leesbaar:
 
     Richard Pieter Jansen = Richard
         bsn: 4f1c0e...            # vingerafdruk, niet het BSN zelf
@@ -190,6 +190,21 @@ def norm_term(t: str) -> str:
     return " ".join(w.lower() for w in re.findall(r"\w+", t))
 
 
+ADRES_GETYPT_RE = re.compile(
+    r"^\s*(?P<straat>[^,\d][^,]*?)\s+(?:(?:nr\.?|nummer|no\.?)\s*)?"
+    r"(?P<nummer>\d{1,5}(?:\s*-?\s*[A-Za-z]{1,2}(?![A-Za-z])|-\d{1,3})?)\b", re.I)
+POSTCODE_GETYPT_RE = re.compile(r"(?<!\w)([1-9]\d{3}\s?[A-Za-z]{2})(?!\w)")
+
+
+def ontleed_adres(tekst: str) -> tuple[str, str, str]:
+    """'Kerkstraat 12a, 3512 JK Utrecht' -> ('Kerkstraat', '12a', '3512 JK').
+    Straat + huisnummer en postcode mogen elk ontbreken."""
+    pc = POSTCODE_GETYPT_RE.search(tekst)
+    voor_postcode = tekst[:pc.start()] if pc else tekst
+    m = ADRES_GETYPT_RE.match(voor_postcode)
+    return (m["straat"] if m else "", m["nummer"] if m else "", pc[1].upper() if pc else "")
+
+
 def sleutels_adres(straat: str, nummer: str, postcode: str) -> list[tuple[str, str]]:
     uit = []
     if straat and nummer:
@@ -209,6 +224,8 @@ def sleutels_adres(straat: str, nummer: str, postcode: str) -> list[tuple[str, s
 class Familiegegevens:
     per_regel: dict[str, dict[str, str]] = field(default_factory=dict)  # naamregel -> {afdruk: soort}
     leesbaar: dict[str, list[tuple[str, str]]] = field(default_factory=dict)  # naamregel -> [(label, waarde)]
+    # Zelf getypte geboortedatum/adres: naamregel -> [(soort, waarde)], zoals in een vingerafdruk.
+    getypt: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
     sleutel_klopt: bool = True
     waarschuwingen: list[str] = field(default_factory=list)   # zonder de waarden zelf
 
@@ -218,13 +235,16 @@ class Familiegegevens:
 
     @property
     def leeg(self) -> bool:
-        return not self.heeft_afdrukken and not any(self.leesbaar.values())
+        return (not self.heeft_afdrukken and not any(self.leesbaar.values())
+                and not any(self.getypt.values()))
 
     def samenvoegen(self, ander: Familiegegevens) -> None:
         for regel, afdrukken in ander.per_regel.items():
             self.per_regel.setdefault(regel, {}).update(afdrukken)
         for regel, waarden in ander.leesbaar.items():
             self.leesbaar.setdefault(regel, []).extend(waarden)
+        for regel, waarden in ander.getypt.items():
+            self.getypt.setdefault(regel, []).extend(waarden)
         self.waarschuwingen += ander.waarschuwingen
         self.sleutel_klopt &= ander.sleutel_klopt
 
@@ -251,8 +271,23 @@ def lees_familie(pad: Path | None, sleutel: bytes | None) -> Familiegegevens:
         elif naamregel and (m := GEGEVEN_RE.match(regel)):
             gegevens.per_regel[naamregel][m[2].lower()] = m[1].lower()
         elif naamregel and (m := LEESBAAR_RE.match(regel)):
-            if m[1].strip().lower() in GEHEIM:
-                # Zelf getypt BSN/adres/geboortedatum: wordt niet gebruikt (alleen vingerafdrukken).
+            soort, waarde = m[1].strip().lower(), re.sub(r"\s*#.*$", "", m[2])
+            if soort in ("geboortedatum", "adres"):
+                # Zelf getypt mag: "    geboortedatum: 10-02-1980", "    adres: Kerkstraat 12a, 3512 JK Utrecht".
+                if soort == "geboortedatum":
+                    iso = _datum_iso(waarde)
+                    sleutels = [("geboortedatum", iso)] if iso else []
+                else:
+                    sleutels = sleutels_adres(*ontleed_adres(waarde))
+                if sleutels:
+                    gegevens.getypt.setdefault(naamregel, []).extend(sleutels)
+                else:
+                    voorbeeld = ("10-02-1980 of 10 februari 1980" if soort == "geboortedatum"
+                                 else "Kerkstraat 12a, 3512 JK Utrecht")
+                    gegevens.waarschuwingen.append(
+                        f"{pad.name}, regel {regelnr}: {soort} niet begrepen (schrijf bijv. {voorbeeld}).")
+            elif soort in GEHEIM:
+                # Zelf getypt BSN: wordt niet gebruikt (alleen vingerafdrukken).
                 gegevens.waarschuwingen.append(
                     f"{pad.name}, regel {regelnr}: '{m[1].strip()}:' zelf getypt wordt niet gebruikt. "
                     f"Haal de regel weg en voeg het toe met --familie-toevoegen.")
@@ -286,6 +321,7 @@ class FamilieIndex:
         # Leesbare gegevens, genormaliseerd: (soort, waarde) -> (label, naam)
         self.leesbaar: dict[tuple[str, str], tuple[str, str]] = {}
         self.max_woorden = 0
+        self.getypt: dict[tuple[str, str], str] = {}   # (soort, waarde) -> naam, zelf getypt in familie.txt
         for p in personen:
             if p.positie[0] != -1 or not p.label:
                 continue
@@ -293,6 +329,8 @@ class FamilieIndex:
             if sleutel:
                 for afdruk, soort in gegevens.per_regel.get(regel, {}).items():
                     self.afdrukken[afdruk] = (soort, p.label)
+            for soort, waarde in gegevens.getypt.get(regel, []):
+                self.getypt[(soort, waarde)] = p.label
             for label, waarde in gegevens.leesbaar.get(regel, []):
                 soort = LABELS.get(label, "term")
                 norm = {"telefoon": norm_telefoon, "e-mail": str.lower, "kenteken": norm_kenteken}.get(
@@ -303,13 +341,15 @@ class FamilieIndex:
                         self.max_woorden = max(self.max_woorden, len(norm.split()))
 
     def _zoek(self, soort: str, waarde: str) -> str | None:
+        if (soort, waarde) in self.getypt:
+            return self.getypt[(soort, waarde)]
         if not self.sleutel:
             return None
         gevonden = self.afdrukken.get(vingerafdruk(self.sleutel, soort, waarde))
         return gevonden[1] if gevonden else None
 
     def vind(self, tekst: str) -> list[Vondst]:
-        if not self.afdrukken and not self.leesbaar:
+        if not self.afdrukken and not self.leesbaar and not self.getypt:
             return []
         uit = []
         for m in BSN_KANDIDAAT_RE.finditer(tekst):
